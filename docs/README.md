@@ -22,6 +22,8 @@ A short-form vertical video app restricted to one thing: devotional content — 
 | **[`TECH_STACK.md`](./TECH_STACK.md)** | What do we build it with? Architecture diagram, mobile/backend/database/cache/CDN choices and the reasoning behind each, the AI moderation pipeline, and the cost/scaling path from day one to Instagram-scale. |
 | **[`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md)** | In what order? A 5-phase build plan from foundation through public launch and post-launch scale, plus team roles, a QA checklist, and a launch checklist. |
 | **[`FRONTEND_GUIDELINES.md`](./FRONTEND_GUIDELINES.md)** | What should it look and feel like? Color, type, the signature "Mala Ring" motif, motion principles, and an explicit list of mainstream-social-media patterns this product deliberately does not use. |
+| **[`USER_FLOWS.md`](./USER_FLOWS.md)** | How does a new person actually move through the app? Research-grounded onboarding options for Viewers and Creators (competitor patterns from Duolingo, Calm, TikTok, Patreon), and why Admin should live outside the mobile app entirely. Not yet decided — options for discussion. |
+| **[`GAPS.md`](./GAPS.md)** | What's still missing? A living, growing backlog — roles & permissions, trust & safety, payments compliance, and more. Check this before assuming something is handled. |
 
 ---
 
