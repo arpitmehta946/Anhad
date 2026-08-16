@@ -42,16 +42,18 @@ const (
 // Service provides the phone-OTP auth flow and JWT issuance/validation. It
 // holds the shared Postgres/Redis connections plus the JWT signing secret.
 type Service struct {
-	store     *store.Store
-	logger    *slog.Logger
-	jwtSecret []byte
+	store               *store.Store
+	logger              *slog.Logger
+	jwtSecret           []byte
+	bootstrapAdminPhone string
 }
 
 func NewService(st *store.Store, logger *slog.Logger, cfg *config.Config) *Service {
 	return &Service{
-		store:     st,
-		logger:    logger,
-		jwtSecret: []byte(cfg.JWTSecret),
+		store:               st,
+		logger:              logger,
+		jwtSecret:           []byte(cfg.JWTSecret),
+		bootstrapAdminPhone: cfg.BootstrapAdminPhone,
 	}
 }
 

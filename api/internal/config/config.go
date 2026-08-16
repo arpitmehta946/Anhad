@@ -8,11 +8,12 @@ import (
 
 // Config holds all environment-derived settings for the API process.
 type Config struct {
-	Addr        string
-	Env         string
-	DatabaseURL string
-	RedisURL    string
-	JWTSecret   string
+	Addr                string
+	Env                 string
+	DatabaseURL         string
+	RedisURL            string
+	JWTSecret           string
+	BootstrapAdminPhone string
 }
 
 // Load reads configuration from environment variables, applying local-dev
@@ -27,6 +28,12 @@ func Load() (*Config, error) {
 		// other local-dev defaults above. Every non-development environment
 		// must set a real JWT_SECRET explicitly.
 		JWTSecret: getenv("JWT_SECRET", "dev-insecure-jwt-secret-change-me"),
+		// The first-admin bootstrap (docs/GAPS.md "Roles & permissions"):
+		// whichever phone number this names gets role = admin the moment it
+		// signs up, since nothing else can grant that role before an admin
+		// already exists. Empty by default — the mechanism is a no-op until
+		// explicitly configured.
+		BootstrapAdminPhone: getenv("BOOTSTRAP_ADMIN_PHONE", ""),
 	}
 
 	if cfg.Addr == "" {
