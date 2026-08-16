@@ -6,15 +6,21 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/anhad/api/internal/auth"
 	"github.com/anhad/api/internal/config"
 	"github.com/anhad/api/internal/store"
 )
 
-// New assembles an *http.Server with the Phase 0 route table. Feed, auth,
-// japa, and moderation routes land in later phases per IMPLEMENTATION_PLAN.md.
+// New assembles an *http.Server with the Phase 0 route table. Feed, japa,
+// and moderation routes land in later phases per IMPLEMENTATION_PLAN.md.
 func New(cfg *config.Config, logger *slog.Logger, st *store.Store) *http.Server {
+	authSvc := auth.NewService(st, logger, cfg)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthHandler(logger, st))
+	mux.HandleFunc("POST /v1/auth/otp/request", requestOTPHandler(logger, authSvc))
+	mux.HandleFunc("POST /v1/auth/otp/verify", verifyOTPHandler(logger, authSvc))
+	mux.Handle("GET /v1/me", requireAuth(authSvc)(meHandler()))
 
 	return &http.Server{
 		Addr:    cfg.Addr,
