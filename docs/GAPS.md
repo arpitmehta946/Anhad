@@ -59,6 +59,8 @@ Rejected alternatives, and why: a single 6+ value enum (`viewer/creator/admin/mo
 
 ## Account & session management
 
+- [ ] 🟢 **Social sign-in (Google / Apple) — deliberately not in V1.** Phone-OTP alone keeps the trust/anti-bot model simple (one phone number = one identity, directly tied to the strike/ban system in `PRD.md` §7.5) and, concretely, exempts the app from Apple App Store Guideline 4.8 (any third-party login requires also shipping Sign in with Apple as an equivalent option). Worth revisiting for diaspora reach where SMS delivery is less reliable — but adding Google later makes Apple Sign-In mandatory too, plus real account-linking complexity: does a Google sign-in sharing an email with an existing phone account merge, or silently create a duplicate with a reset trust score and streak? Needs a real answer before it ships, not after. Not blocking anything now.
+
 - [ ] 🟡 **Account recovery** — lost/changed phone number, locked out. No plan yet.
 - [ ] 🟡 **Multi-device / session list** — logging in on a new phone, "log out of all other devices." Not designed.
 - [ ] 🟢 **Blocking/muting between users** — no mechanism for a viewer to block a creator or another commenter yet.
