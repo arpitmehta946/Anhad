@@ -27,6 +27,7 @@ var (
 	ErrOTPCooldown    = errors.New("otp request cooldown active")
 	ErrOTPInvalid     = errors.New("otp code invalid or expired")
 	ErrOTPMaxAttempts = errors.New("too many otp verification attempts")
+	ErrRefreshInvalid = errors.New("refresh token invalid or expired")
 )
 
 const (

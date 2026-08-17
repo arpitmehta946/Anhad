@@ -44,3 +44,17 @@ func (s *Service) findOrCreateUser(ctx context.Context, phoneNumber string) (*Us
 	}
 	return &u, nil
 }
+
+// getUserByID re-fetches a user's current role/phone at refresh time rather
+// than trusting the (possibly stale, e.g. role-changed-since) refresh
+// token's associated ID alone.
+func (s *Service) getUserByID(ctx context.Context, id string) (*User, error) {
+	const query = `SELECT id, phone_number, role, created_at FROM users WHERE id = $1`
+
+	var u User
+	err := s.store.PG.QueryRow(ctx, query, id).Scan(&u.ID, &u.PhoneNumber, &u.Role, &u.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}

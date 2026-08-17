@@ -83,6 +83,34 @@ func verifyOTPHandler(logger *slog.Logger, authSvc *auth.Service) http.HandlerFu
 	}
 }
 
+func refreshTokenHandler(logger *slog.Logger, authSvc *auth.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			RefreshToken string `json:"refresh_token"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RefreshToken == "" {
+			writeError(w, http.StatusBadRequest, "refresh_token is required")
+			return
+		}
+
+		tokens, err := authSvc.RefreshTokens(r.Context(), req.RefreshToken)
+		switch {
+		case err == nil:
+			writeJSON(w, http.StatusOK, map[string]any{
+				"access_token":  tokens.AccessToken,
+				"refresh_token": tokens.RefreshToken,
+				"token_type":    "Bearer",
+				"expires_in":    tokens.ExpiresIn,
+			})
+		case errors.Is(err, auth.ErrRefreshInvalid):
+			writeError(w, http.StatusUnauthorized, "invalid or expired refresh token")
+		default:
+			logger.Error("token refresh failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to refresh token")
+		}
+	}
+}
+
 // meHandler is a minimal authenticated route: it returns whatever the
 // access token's claims say about the caller. It exists both as a real
 // "whoami" endpoint and as the simplest possible check that requireAuth is

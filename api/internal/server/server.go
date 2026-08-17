@@ -22,6 +22,7 @@ func New(cfg *config.Config, logger *slog.Logger, st *store.Store) *http.Server 
 	mux.HandleFunc("GET /healthz", healthHandler(logger, st))
 	mux.HandleFunc("POST /v1/auth/otp/request", requestOTPHandler(logger, authSvc))
 	mux.HandleFunc("POST /v1/auth/otp/verify", verifyOTPHandler(logger, authSvc))
+	mux.HandleFunc("POST /v1/auth/refresh", refreshTokenHandler(logger, authSvc))
 	mux.Handle("GET /v1/me", requireAuth(authSvc)(meHandler()))
 	mux.Handle("POST /v1/japa/taps", requireAuth(authSvc)(submitJapaTapsHandler(logger, japaSvc)))
 

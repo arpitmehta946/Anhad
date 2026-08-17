@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/redis/go-redis/v9"
 )
 
 // TokenPair is what gets returned to the client after a successful OTP
@@ -65,6 +66,33 @@ func (s *Service) issueTokens(ctx context.Context, user *User) (*TokenPair, erro
 		RefreshToken: refreshToken,
 		ExpiresIn:    int64(accessTokenTTL.Seconds()),
 	}, nil
+}
+
+// RefreshTokens redeems a refresh token for a new token pair. The used
+// refresh token is deleted from Redis before a new one is issued (rotation)
+// so a leaked/reused refresh token is only ever usable once, and a client
+// that races a refresh against itself gets exactly one winner.
+func (s *Service) RefreshTokens(ctx context.Context, refreshToken string) (*TokenPair, error) {
+	refreshKey := "refresh:" + hashToken(refreshToken)
+
+	userID, err := s.store.Redis.Get(ctx, refreshKey).Result()
+	if errors.Is(err, redis.Nil) {
+		return nil, ErrRefreshInvalid
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get refresh token: %w", err)
+	}
+
+	if err := s.store.Redis.Del(ctx, refreshKey).Err(); err != nil {
+		return nil, fmt.Errorf("invalidate used refresh token: %w", err)
+	}
+
+	user, err := s.getUserByID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get user: %w", err)
+	}
+
+	return s.issueTokens(ctx, user)
 }
 
 // ParseAccessToken validates signature and expiry and returns the claims.
