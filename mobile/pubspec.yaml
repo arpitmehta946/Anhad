@@ -10,8 +10,17 @@ dependencies:
   flutter:
     sdk: flutter
   flutter_riverpod: ^2.5.1
-  isar: ^3.1.0
-  isar_flutter_libs: ^3.1.0
+  # isar_community, not the original `isar`/`isar_flutter_libs` — the
+  # original package is unmaintained (last release ~2023) and its
+  # isar_flutter_libs Android module never added the `namespace` AGP 8+
+  # requires, so it no longer builds. isar_community is a maintained fork
+  # with an identical v3 API (docs/TECH_STACK.md §2).
+  isar_community: ^3.3.2
+  isar_community_flutter_libs: ^3.3.2
+  path_provider: ^2.1.4
+  http: ^1.2.2
+  connectivity_plus: ^6.0.5
+  flutter_secure_storage: ^9.2.2
   just_audio: ^0.9.40
   audio_service: ^0.18.15
   video_player: ^2.9.1
@@ -21,7 +30,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
-  isar_generator: ^3.1.0
+  isar_community_generator: ^3.3.2
   build_runner: ^2.4.11
 
 flutter:

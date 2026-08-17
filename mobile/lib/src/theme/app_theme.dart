@@ -43,12 +43,23 @@ class AppTheme {
       onError: textPrimary,
       surface: bgSurface,
       onSurface: textPrimary,
+      // Material 3 otherwise tints elevated surfaces (including the AppBar)
+      // with a baseline purple `surfaceTint` that this constructor doesn't
+      // derive from `primary` — left unset, chrome reads as generic
+      // Material purple instead of the Dusk/Prabhat palette above.
+      surfaceTint: Colors.transparent,
     );
 
     return ThemeData(
       brightness: brightness,
       colorScheme: colorScheme,
       scaffoldBackgroundColor: bgBase,
+      appBarTheme: AppBarTheme(
+        backgroundColor: bgBase,
+        foregroundColor: textPrimary,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+      ),
       textTheme: ThemeData(brightness: brightness).textTheme.apply(
             bodyColor: textPrimary,
             displayColor: textPrimary,

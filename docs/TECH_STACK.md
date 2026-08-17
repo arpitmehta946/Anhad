@@ -59,7 +59,7 @@ This document describes what to build with and why. It reflects the constraints 
 |---|---|---|
 | Framework | **Flutter (Dart)** | Single codebase for iOS + Android, compiles to native ARM, smooth 60fps vertical swipe (`PageView.builder`) — the standard choice for this exact app shape (Reels-style feeds). |
 | State management | **Riverpod** | Predictable, testable, avoids the boilerplate of Bloc for a team this size. |
-| Local persistence | **Isar** (fallback: Hive) | Pure-Dart, very fast local NoSQL — stores queued japa taps and streak state so counting works fully offline and screen-off. |
+| Local persistence | **Isar**, via the **isar_community** fork (fallback: Hive) | Pure-Dart, very fast local NoSQL — stores queued japa taps and streak state so counting works fully offline and screen-off. The original `isar`/`isar_flutter_libs` packages are unmaintained (last release ~2023) and never added the Android `namespace` that AGP 8+ requires, so they fail to build on any current AGP. `isar_community` is a maintained fork with an identical v3 API that keeps up with AGP/Kotlin — drop-in, no code-level tradeoff. |
 | Hardware interception | Native **MethodChannels** (Android/iOS) | Captures volume-button presses and manages wake-lock behavior for screen-off tap counting — this cannot be done in pure Dart. |
 | Audio playback | **just_audio** + **audio_service** | The standard pairing for lock-screen/background audio playback on both platforms — required for the Seva Pass "screen locked, audio playing" feature. |
 | Video playback | **video_player** / **better_player** with HLS | Adaptive-bitrate playback of Cloudflare Stream output. |
