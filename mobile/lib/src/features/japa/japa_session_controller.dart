@@ -15,6 +15,7 @@ import 'data/japa_api_client.dart';
 import 'data/japa_sync_service.dart';
 import 'data/local_japa_session.dart';
 import 'data/tap_recorder.dart';
+import 'japa_streak_controller.dart';
 
 /// One full mala (docs/FRONTEND_GUIDELINES.md §5).
 const malaSize = 108;
@@ -105,6 +106,7 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
     this.getActiveSessionId,
     this.updateActiveSessionId,
     this.updateNotificationCount,
+    this.onSynced,
   }) : super(const JapaSessionState()) {
     _init();
   }
@@ -136,6 +138,16 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
   /// (via BackgroundJapaController's own guard) when no screen-off session
   /// is running.
   final void Function(int total)? updateNotificationCount;
+
+  /// Called whenever a batch actually reaches the server — a mala
+  /// completion, connectivity restored, or a backlog flushed at startup —
+  /// since any of those can be the moment today's total crosses the streak
+  /// threshold server-side (docs/PRD.md §7.4, §10.3). japaStreakProvider
+  /// listens for this to know when to refetch, rather than fetching once
+  /// on screen mount and never again: that once caught the streak a
+  /// fraction of a second before a login-time backlog flush created it,
+  /// and then never looked again for the rest of the visit.
+  final void Function()? onSynced;
 
   int? _sessionId;
 
@@ -298,6 +310,10 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
     if (result.rejectedTaps > 0) {
       await adjustDailyTotal(_isar, -result.rejectedTaps);
     }
+    // This is exactly the login-time backlog-catch-up path — unconditional
+    // since a queued batch from a prior visit reaching the server here is
+    // precisely the kind of update the streak needs to know about.
+    onSynced?.call();
     if (!mounted) return;
     state = state.copyWith(syncFailed: result.stillQueued);
   }
@@ -343,6 +359,9 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
     }
     if (outcome == FlushOutcome.rejected) {
       await adjustDailyTotal(_isar, -tapCount);
+    }
+    if (outcome == FlushOutcome.synced) {
+      onSynced?.call();
     }
     if (outcome != FlushOutcome.stillQueued) {
       // Carry the rotated row's count forward regardless of sync outcome —
@@ -401,6 +420,7 @@ final japaSessionControllerProvider = StateNotifierProvider.autoDispose<
     getActiveSessionId: background.getActiveSessionId,
     updateActiveSessionId: background.updateActiveSessionId,
     updateNotificationCount: background.updateNotificationCount,
+    onSynced: () => ref.invalidate(japaStreakProvider),
   );
   // No ref.onDispose(controller.dispose) here — StateNotifierProvider
   // already disposes the notifier it creates automatically. Registering it

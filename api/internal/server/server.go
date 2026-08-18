@@ -16,7 +16,7 @@ import (
 // moderation routes land in later phases per IMPLEMENTATION_PLAN.md.
 func New(cfg *config.Config, logger *slog.Logger, st *store.Store) *http.Server {
 	authSvc := auth.NewService(st, logger, cfg)
-	japaSvc := japa.NewService(st)
+	japaSvc := japa.NewService(st, logger)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthHandler(logger, st))
@@ -25,6 +25,7 @@ func New(cfg *config.Config, logger *slog.Logger, st *store.Store) *http.Server 
 	mux.HandleFunc("POST /v1/auth/refresh", refreshTokenHandler(logger, authSvc))
 	mux.Handle("GET /v1/me", requireAuth(authSvc)(meHandler()))
 	mux.Handle("POST /v1/japa/taps", requireAuth(authSvc)(submitJapaTapsHandler(logger, japaSvc)))
+	mux.Handle("GET /v1/japa/streak", requireAuth(authSvc)(japaStreakHandler(logger, japaSvc)))
 
 	return &http.Server{
 		Addr:    cfg.Addr,

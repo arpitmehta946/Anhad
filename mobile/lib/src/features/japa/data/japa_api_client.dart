@@ -18,15 +18,51 @@ class JapaTapsRejected implements Exception {
   String toString() => 'japa tap submission rejected: $statusCode $body';
 }
 
-/// Talks to `POST /v1/japa/taps` (api/internal/server/japa.go). The auth
-/// token is resolved lazily per call via [tokenProvider] rather than
-/// injected once, since it can change after this client is constructed
-/// (dev sign-in today, the real login flow later).
+/// A user's standing streak, from `GET /v1/japa/streak`
+/// (api/internal/japa/streak.go) — current/longest consecutive days with at
+/// least one full mala (docs/PRD.md §7.4).
+class JapaStreak {
+  const JapaStreak({required this.currentStreak, required this.longestStreak});
+
+  final int currentStreak;
+  final int longestStreak;
+
+  factory JapaStreak.fromJson(Map<String, dynamic> json) => JapaStreak(
+        currentStreak: json['current_streak'] as int,
+        longestStreak: json['longest_streak'] as int,
+      );
+}
+
+/// Talks to `POST /v1/japa/taps` and `GET /v1/japa/streak`
+/// (api/internal/server/japa.go). The auth token is resolved lazily per
+/// call via [tokenProvider] rather than injected once, since it can change
+/// after this client is constructed (dev sign-in today, the real login flow
+/// later).
 class JapaApiClient {
   JapaApiClient({required this.baseUrl, required this.tokenProvider});
 
   final String baseUrl;
   final Future<String?> Function() tokenProvider;
+
+  Future<JapaStreak> getStreak() async {
+    final token = await tokenProvider();
+    if (token == null || token.isEmpty) {
+      throw StateError('no auth token set — use developer sign-in first');
+    }
+
+    final response = await http.get(
+      Uri.parse('$baseUrl/v1/japa/streak'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    if (response.statusCode != 200) {
+      throw HttpException(
+        'japa streak fetch failed: ${response.statusCode} ${response.body}',
+      );
+    }
+    return JapaStreak.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
 
   Future<void> submitTaps(List<DateTime> taps) async {
     final token = await tokenProvider();

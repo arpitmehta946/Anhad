@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../theme/colors.dart';
 import 'background/background_japa_controller.dart';
 import 'japa_session_controller.dart';
+import 'japa_streak_controller.dart';
 import 'mala_ring_painter.dart';
 
 /// The japa (chant) counter screen (docs/FRONTEND_GUIDELINES.md §10): the
@@ -165,6 +166,7 @@ class _JapaScreenState extends ConsumerState<JapaScreen>
   Widget build(BuildContext context) {
     final state = ref.watch(japaSessionControllerProvider);
     final backgroundState = ref.watch(backgroundJapaControllerProvider);
+    final streak = ref.watch(japaStreakProvider).valueOrNull;
     final reduceMotion = MediaQuery.of(context).disableAnimations;
     final theme = Theme.of(context);
 
@@ -266,6 +268,22 @@ class _JapaScreenState extends ConsumerState<JapaScreen>
                                   : '${state.tapsInRound} / $malaSize',
                               style: theme.textTheme.bodySmall,
                             ),
+                            // Shown only once there's a streak to report —
+                            // silence rather than "no streak yet" for a new
+                            // or just-broken streak is the neutral,
+                            // non-guilt-tripping option (FRONTEND_GUIDELINES
+                            // §8/§9: no "you lost your streak" framing, and
+                            // an empty state should read as an invitation,
+                            // not an apology).
+                            if (streak != null && streak.currentStreak > 0) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                '${streak.currentStreak}-day streak',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: AnhadColors.accentDiya,
+                                ),
+                              ),
+                            ],
                             const SizedBox(height: 12),
                             Text(
                               'Tap anywhere to chant',
