@@ -133,6 +133,11 @@ class _JapaScreenState extends ConsumerState<JapaScreen>
                                 style: theme.textTheme.bodySmall,
                               ),
                             ],
+                            const SizedBox(height: 4),
+                            Text(
+                              'Today: ${state.dailyTotal}',
+                              style: theme.textTheme.bodySmall,
+                            ),
                             const SizedBox(height: 12),
                             Text(
                               'Tap anywhere to chant',
