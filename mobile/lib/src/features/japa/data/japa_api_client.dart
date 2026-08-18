@@ -33,12 +33,20 @@ class JapaStreak {
       );
 }
 
+/// What [JapaSyncService] needs to submit a batch — split out from the
+/// concrete [JapaApiClient] so tests can substitute a fake instead of
+/// intercepting real HTTP calls (`package:http`'s top-level `post` isn't
+/// injectable on its own).
+abstract class JapaTapsSubmitter {
+  Future<void> submitTaps(List<DateTime> taps);
+}
+
 /// Talks to `POST /v1/japa/taps` and `GET /v1/japa/streak`
 /// (api/internal/server/japa.go). The auth token is resolved lazily per
 /// call via [tokenProvider] rather than injected once, since it can change
 /// after this client is constructed (dev sign-in today, the real login flow
 /// later).
-class JapaApiClient {
+class JapaApiClient implements JapaTapsSubmitter {
   JapaApiClient({required this.baseUrl, required this.tokenProvider});
 
   final String baseUrl;
@@ -64,6 +72,7 @@ class JapaApiClient {
     );
   }
 
+  @override
   Future<void> submitTaps(List<DateTime> taps) async {
     final token = await tokenProvider();
     if (token == null || token.isEmpty) {

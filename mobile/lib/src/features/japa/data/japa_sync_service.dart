@@ -27,12 +27,12 @@ class FlushPendingResult {
 /// batch on the server side (api/internal/japa/service.go), never one per
 /// tap (docs/TECH_STACK.md §5).
 class JapaSyncService {
-  JapaSyncService({required Isar isar, required JapaApiClient api})
+  JapaSyncService({required Isar isar, required JapaTapsSubmitter api})
       : _isar = isar,
         _api = api;
 
   final Isar _isar;
-  final JapaApiClient _api;
+  final JapaTapsSubmitter _api;
 
   /// Flushes every locally-queued session — e.g. leftovers from a previous
   /// app run that never made it online. [excludeId] skips the caller's own

@@ -30,3 +30,13 @@ build/
 *.iml
 .idea/
 .vscode/
+
+# `flutter test` runs as a plain Dart VM process on the host, not through a
+# full `flutter run -d windows` build, so the isar_community_flutter_libs
+# plugin's CMake step (which normally copies this next to the built exe)
+# never runs — Isar.open() looks for it directly in the working directory
+# instead. Copied once from the pub cache:
+#   cp "$LOCALAPPDATA/Pub/Cache/hosted/pub.dev/isar_community_flutter_libs-<version>/windows/libisar.dll" mobile/libisar.dll
+# A prebuilt binary tied to the isar_community version, not source — same
+# reasoning as *.g.dart above, just gitignored instead of vendored.
+/libisar.dll

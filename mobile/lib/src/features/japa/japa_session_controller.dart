@@ -107,12 +107,20 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
     this.updateActiveSessionId,
     this.updateNotificationCount,
     this.onSynced,
-  }) : super(const JapaSessionState()) {
+    Stream<List<ConnectivityResult>>? connectivityChanges,
+  })  : _connectivityChanges =
+            connectivityChanges ?? Connectivity().onConnectivityChanged,
+        super(const JapaSessionState()) {
     _init();
   }
 
   final Isar _isar;
   final JapaSyncService _sync;
+
+  /// Defaults to the real platform plugin — overridable so tests can drive
+  /// connectivity-restored behavior with a plain [Stream] instead of
+  /// needing to mock connectivity_plus's platform channel.
+  final Stream<List<ConnectivityResult>> _connectivityChanges;
 
   /// Asks the native service whether a screen-off session is currently
   /// running and, if so, which Isar session id it's targeting (plus its
@@ -223,7 +231,7 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
     // say so immediately rather than queuing it invisibly forever.
     unawaited(_syncPendingAndReportStatus(excludeId: sessionId));
 
-    _connectivitySub = Connectivity().onConnectivityChanged.listen((results) {
+    _connectivitySub = _connectivityChanges.listen((results) {
       if (results.any((r) => r != ConnectivityResult.none)) {
         unawaited(_serialized(_flushCurrentAndRotate));
       }
