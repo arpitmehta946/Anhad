@@ -66,28 +66,48 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
   int? _sessionId;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
 
-  Future<void> _init() async {
-    // Retry anything left over from a previous run that never made it
-    // online — this session doesn't exist yet, so it's never among these.
-    // Surface the result: if practice from a prior visit is still stuck
-    // locally (e.g. no auth token was ever set), the screen should say so
-    // immediately rather than queuing it invisibly forever.
-    unawaited(_syncPendingAndReportStatus());
+  // Serializes every flush-triggering path (init-time pending sync,
+  // connectivity restored, mala completion, screen close) onto the current
+  // session. Without this, two triggers firing close together (e.g. two
+  // connectivity-change events) both read the same still-there Isar row and
+  // both submit it, producing duplicate rows on the server — and if one of
+  // those submissions gets rejected, the taps added while it was in flight
+  // pile onto a session that's already unrecoverable.
+  Future<void> _flushChain = Future.value();
 
+  Future<T> _serialized<T>(Future<T> Function() action) {
+    final result = _flushChain.then((_) => action());
+    _flushChain = result.then((_) {}, onError: (_) {});
+    return result;
+  }
+
+  Future<void> _init() async {
+    // Create the active session first and hand out its id before touching
+    // anything else, so the pending-sync sweep below (which walks every
+    // queued session) can exclude it — otherwise it can race the sweep,
+    // get flushed-and-deleted out from under `_sessionId` while this
+    // controller still believes it's live, and silently swallow every tap
+    // written after that until the next rotation.
     final session = LocalJapaSession();
     await _isar.writeTxn(() => _isar.localJapaSessions.put(session));
     if (!mounted) return;
     _sessionId = session.id;
 
+    // Retry anything left over from a previous run that never made it
+    // online. Surface the result: if practice from a prior visit is still
+    // stuck locally (e.g. no auth token was ever set), the screen should
+    // say so immediately rather than queuing it invisibly forever.
+    unawaited(_syncPendingAndReportStatus(excludeId: session.id));
+
     _connectivitySub = Connectivity().onConnectivityChanged.listen((results) {
       if (results.any((r) => r != ConnectivityResult.none)) {
-        unawaited(_flushCurrentAndRotate());
+        unawaited(_serialized(_flushCurrentAndRotate));
       }
     });
   }
 
-  Future<void> _syncPendingAndReportStatus() async {
-    await _sync.flushPending();
+  Future<void> _syncPendingAndReportStatus({required int excludeId}) async {
+    await _serialized(() => _sync.flushPending(excludeId: excludeId));
     final remaining = await _isar.localJapaSessions.where().count();
     if (!mounted) return;
     state = state.copyWith(syncFailed: remaining > 0);
@@ -117,7 +137,7 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
       );
       // A completed mala is a natural checkpoint — sync it now rather than
       // waiting for the user to leave the screen or a connectivity change.
-      unawaited(_flushCurrentAndRotate());
+      unawaited(_serialized(_flushCurrentAndRotate));
     } else {
       state = state.copyWith(
         tapsInRound: nextTapsInRound,
@@ -161,7 +181,7 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
   @override
   void dispose() {
     unawaited(_connectivitySub?.cancel());
-    unawaited(_flushCurrentFinal());
+    unawaited(_serialized(_flushCurrentFinal));
     super.dispose();
   }
 }
