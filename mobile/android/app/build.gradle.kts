@@ -47,3 +47,9 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // MediaSessionCompat + VolumeProviderCompat — the screen-off volume-key
+    // capture mechanism in JapaForegroundService (docs/PRD.md §7.4).
+    implementation("androidx.media:media:1.7.0")
+}

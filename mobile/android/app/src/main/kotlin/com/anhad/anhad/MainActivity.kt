@@ -43,6 +43,7 @@ class MainActivity : FlutterActivity() {
         methodChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "startSession" -> {
+                    val sessionId = call.argument<Int>("sessionId")
                     val count = call.argument<Int>("count") ?: 0
                     // Only the initial start goes through startForegroundService —
                     // it's the one call Android requires a startForeground()
@@ -50,7 +51,31 @@ class MainActivity : FlutterActivity() {
                     // the already-running foreground service via plain
                     // startService, which carries no such obligation and would
                     // risk an ANR if made to repeat it on every action.
-                    startForegroundServiceAction(JapaForegroundService.ACTION_START, count)
+                    val intent = Intent(this, JapaForegroundService::class.java)
+                        .setAction(JapaForegroundService.ACTION_START)
+                        .putExtra(JapaForegroundService.EXTRA_COUNT, count)
+                    if (sessionId != null) {
+                        intent.putExtra(JapaForegroundService.EXTRA_SESSION_ID, sessionId)
+                    }
+                    ContextCompat.startForegroundService(this, intent)
+                    result.success(null)
+                }
+                "getActiveSessionId" -> {
+                    val prefs = getSharedPreferences(JapaForegroundService.PREFS_NAME, MODE_PRIVATE)
+                    if (prefs.contains(JapaForegroundService.PREF_ACTIVE_SESSION_ID)) {
+                        result.success(prefs.getInt(JapaForegroundService.PREF_ACTIVE_SESSION_ID, -1))
+                    } else {
+                        result.success(null)
+                    }
+                }
+                "updateSessionId" -> {
+                    val sessionId = call.argument<Int>("sessionId")
+                    if (sessionId != null) {
+                        startServiceActionWithSessionId(
+                            JapaForegroundService.ACTION_UPDATE_SESSION_ID,
+                            sessionId,
+                        )
+                    }
                     result.success(null)
                 }
                 "pause" -> {
@@ -125,15 +150,16 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun startForegroundServiceAction(action: String, count: Int? = null) {
-        val intent = Intent(this, JapaForegroundService::class.java).setAction(action)
-        if (count != null) intent.putExtra(JapaForegroundService.EXTRA_COUNT, count)
-        ContextCompat.startForegroundService(this, intent)
-    }
-
     private fun startServiceAction(action: String, count: Int? = null) {
         val intent = Intent(this, JapaForegroundService::class.java).setAction(action)
         if (count != null) intent.putExtra(JapaForegroundService.EXTRA_COUNT, count)
+        startService(intent)
+    }
+
+    private fun startServiceActionWithSessionId(action: String, sessionId: Int) {
+        val intent = Intent(this, JapaForegroundService::class.java)
+            .setAction(action)
+            .putExtra(JapaForegroundService.EXTRA_SESSION_ID, sessionId)
         startService(intent)
     }
 

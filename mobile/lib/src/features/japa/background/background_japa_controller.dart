@@ -40,9 +40,21 @@ class BackgroundJapaState {
 class BackgroundJapaController extends StateNotifier<BackgroundJapaState> {
   BackgroundJapaController(this._channel) : super(const BackgroundJapaState()) {
     _channel.onStateChanged = _onStateChanged;
+    _restoreActiveSession();
   }
 
   final BackgroundJapaChannel _channel;
+
+  /// A fresh app open (or reopen mid-session) always starts with `active:
+  /// false` in memory — this reconciles it with reality if the native
+  /// service is actually still running a session from before, so the
+  /// toggle reflects what's really happening rather than defaulting to
+  /// "off" until the user notices and touches it.
+  Future<void> _restoreActiveSession() async {
+    final activeId = await _channel.getActiveSessionId();
+    if (activeId == null || !mounted) return;
+    state = state.copyWith(active: true);
+  }
 
   void _onStateChanged(bool paused, bool ended) {
     if (!mounted) return;
@@ -70,10 +82,26 @@ class BackgroundJapaController extends StateNotifier<BackgroundJapaState> {
   Future<bool> requestNotificationPermission() =>
       _channel.requestNotificationPermission();
 
-  Future<void> start(int currentCount) async {
-    await _channel.startSession(count: currentCount);
+  Future<void> start({required int sessionId, required int currentCount}) async {
+    await _channel.startSession(sessionId: sessionId, count: currentCount);
     if (!mounted) return;
     state = BackgroundJapaState(active: true, totalTaps: currentCount);
+  }
+
+  /// The Isar session id the native service is targeting right now, or
+  /// null if no screen-off session is running — used by
+  /// JapaSessionController on init to adopt an already-running session
+  /// instead of starting a second, separately-counted one.
+  Future<int?> getActiveSessionId() => _channel.getActiveSessionId();
+
+  /// Tells the native service (and its headless isolate) to retarget an
+  /// in-progress session at a different Isar row. Called by
+  /// JapaSessionController whenever it rotates to a fresh session — a
+  /// no-op if no screen-off session is actually running, so callers don't
+  /// need to check first.
+  void updateActiveSessionId(int newSessionId) {
+    if (!state.active) return;
+    unawaited(_channel.updateSessionId(newSessionId));
   }
 
   Future<void> pause() async {

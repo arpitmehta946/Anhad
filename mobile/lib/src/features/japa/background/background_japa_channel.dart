@@ -29,8 +29,27 @@ class BackgroundJapaChannel {
     }
   }
 
-  Future<void> startSession({required int count}) =>
-      _channel.invokeMethod('startSession', {'count': count});
+  Future<void> startSession({required int sessionId, required int count}) =>
+      _channel.invokeMethod(
+        'startSession',
+        {'sessionId': sessionId, 'count': count},
+      );
+
+  /// The Isar session id the native service is currently targeting, or
+  /// null if no screen-off session is running — read from SharedPreferences
+  /// on the native side rather than a live service binding, so it answers
+  /// correctly even if the service isn't currently running.
+  Future<int?> getActiveSessionId() =>
+      _channel.invokeMethod<int>('getActiveSessionId');
+
+  /// Retargets an already-running session at a different Isar row —
+  /// needed because JapaSessionController rotates to a fresh session every
+  /// time a mala completes or connectivity is restored (see
+  /// _flushCurrentAndRotate), and without this the native service and its
+  /// headless isolate would keep appending taps to the old, abandoned row
+  /// nobody is watching anymore.
+  Future<void> updateSessionId(int sessionId) =>
+      _channel.invokeMethod('updateSessionId', {'sessionId': sessionId});
 
   Future<void> pause() => _channel.invokeMethod('pause');
 

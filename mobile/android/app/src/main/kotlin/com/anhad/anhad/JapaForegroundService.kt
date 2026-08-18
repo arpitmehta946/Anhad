@@ -8,15 +8,40 @@ import android.app.Service
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import androidx.core.app.NotificationCompat
+import androidx.media.VolumeProviderCompat
+import android.support.v4.media.session.MediaSessionCompat
+import android.support.v4.media.session.PlaybackStateCompat
+import io.flutter.FlutterInjector
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.embedding.engine.dart.DartExecutor
+import io.flutter.plugin.common.MethodChannel
 
 /**
  * Keeps a japa (chant) session alive with the screen off (docs/PRD.md
- * §7.4). Phase 1 of the build: the service itself, its lock-screen-visible
- * notification, and pause/end controls. Volume-key tap capture and
- * real-time Isar persistence land in later phases — for now the displayed
- * count is whatever [ACTION_UPDATE_COUNT] last told us, not yet backed by
- * real taps.
+ * §7.4): the lock-screen-visible notification with pause/end controls
+ * (phase 1), volume-key tap capture (phase 2), and getting captured taps
+ * into Isar in real time (phase 3, this revision).
+ *
+ * The capture mechanism is a [MediaSessionCompat] with a remote
+ * [VolumeProviderCompat] — when the session is active, Android routes
+ * hardware volume-up/down presses to [VolumeProviderCompat.onAdjustVolume]
+ * instead of adjusting the system media stream, screen off included, and
+ * without needing to actually play any audio. The notification/vibration
+ * side of a captured tap is handled natively, right here, and never
+ * depends on Dart — with the screen off there's no guarantee the *main*
+ * FlutterActivity's engine stays reachable (Android can reclaim a
+ * background Activity independently of the foreground service keeping the
+ * process alive). Getting the tap into Isar, though, does need Dart —
+ * Isar has no native API — so this service runs a second, *headless*
+ * FlutterEngine of its own for the duration of a session
+ * (japa_background_entrypoint.dart), independent of whatever state the
+ * main UI's engine is in. A captured tap updates the notification/vibrates
+ * immediately either way; the headless engine call to persist it is
+ * best-effort on top, not a dependency for the user-visible part.
  */
 class JapaForegroundService : Service() {
 
@@ -29,17 +54,47 @@ class JapaForegroundService : Service() {
         const val ACTION_RESUME = "com.anhad.anhad.japa.RESUME"
         const val ACTION_END = "com.anhad.anhad.japa.END"
         const val ACTION_UPDATE_COUNT = "com.anhad.anhad.japa.UPDATE_COUNT"
+        const val ACTION_UPDATE_SESSION_ID = "com.anhad.anhad.japa.UPDATE_SESSION_ID"
         const val EXTRA_COUNT = "count"
+        const val EXTRA_SESSION_ID = "session_id"
+
+        // Persists which Isar session id is currently being targeted, so
+        // MainActivity can answer "is a screen-off session running, and
+        // which session is it" (JapaSessionController adopts it on init)
+        // without needing a live binding to this service — it may not be
+        // running when asked.
+        const val PREFS_NAME = "japa_background_prefs"
+        const val PREF_ACTIVE_SESSION_ID = "active_session_id"
+
+        private const val BACKGROUND_ISOLATE_CHANNEL = "com.anhad.anhad/japa_background_isolate"
+        private const val BACKGROUND_ENTRYPOINT_LIBRARY =
+            "package:anhad/src/features/japa/background/japa_background_entrypoint.dart"
+        private const val BACKGROUND_ENTRYPOINT_FUNCTION = "japaBackgroundMain"
 
         // Local broadcast so MainActivity (when running) can reflect
         // notification-button taps in the Flutter UI without polling.
         const val BROADCAST_STATE_CHANGED = "com.anhad.anhad.japa.STATE_CHANGED"
         const val EXTRA_PAUSED = "paused"
         const val EXTRA_ENDED = "ended"
+
+        // Broadcast on every volume-key tap captured — best-effort only;
+        // MainActivity relays it to Dart if (and only if) the main engine
+        // happens to be alive and reachable. Nothing depends on this for
+        // correctness — see the class doc.
+        const val BROADCAST_TAP_CAPTURED = "com.anhad.anhad.japa.TAP_CAPTURED"
+        const val EXTRA_TAP_COUNT = "tap_count"
+
+        // A gentle ~30ms tick — long enough to feel, short enough not to
+        // read as a system alert. Matches the on-screen tap's
+        // HapticFeedback.lightImpact() (japa_screen.dart) in weight.
+        private const val TAP_VIBRATION_MS = 30L
     }
 
     private var tapCount = 0
     private var paused = false
+    private var mediaSession: MediaSessionCompat? = null
+    private var backgroundEngine: FlutterEngine? = null
+    private var backgroundChannel: MethodChannel? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -50,6 +105,14 @@ class JapaForegroundService : Service() {
                 paused = false
                 ensureChannel()
                 startForeground(NOTIFICATION_ID, buildNotification())
+                startMediaSession()
+                if (intent.hasExtra(EXTRA_SESSION_ID)) {
+                    val sessionId = intent.getIntExtra(EXTRA_SESSION_ID, -1)
+                    getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                        .putInt(PREF_ACTIVE_SESSION_ID, sessionId)
+                        .apply()
+                    startBackgroundEngine(sessionId)
+                }
             }
             ACTION_PAUSE -> {
                 paused = true
@@ -65,13 +128,127 @@ class JapaForegroundService : Service() {
                 tapCount = intent.getIntExtra(EXTRA_COUNT, tapCount)
                 updateNotification()
             }
+            ACTION_UPDATE_SESSION_ID -> {
+                val sessionId = intent.getIntExtra(EXTRA_SESSION_ID, -1)
+                if (sessionId != -1) {
+                    getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                        .putInt(PREF_ACTIVE_SESSION_ID, sessionId)
+                        .apply()
+                    backgroundChannel?.invokeMethod(
+                        "updateSessionId",
+                        mapOf("sessionId" to sessionId),
+                    )
+                }
+            }
             ACTION_END -> {
                 sendBroadcast(Intent(BROADCAST_STATE_CHANGED).putExtra(EXTRA_ENDED, true))
+                getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                    .remove(PREF_ACTIVE_SESSION_ID)
+                    .apply()
+                stopMediaSession()
+                stopBackgroundEngine()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
         }
         return START_STICKY
+    }
+
+    /** Registers the MediaSession and hands volume-key handling to
+     * [VolumeProviderCompat.onAdjustVolume] instead of the system — see the
+     * class doc for why this is the capture mechanism. */
+    private fun startMediaSession() {
+        if (mediaSession != null) return
+
+        val volumeProvider = object : VolumeProviderCompat(
+            VOLUME_CONTROL_RELATIVE,
+            /* maxVolume = */ 100,
+            /* currentVolume = */ 50,
+        ) {
+            override fun onAdjustVolume(direction: Int) {
+                // ADJUST_RAISE / ADJUST_LOWER are the two physical keys;
+                // ADJUST_SAME (0) isn't a real press and is ignored. Both
+                // real directions count as one tap — which key was
+                // pressed doesn't matter for a chant count, and forcing
+                // the user to remember "up vs down" would be exactly the
+                // kind of screen-off friction this feature exists to
+                // avoid.
+                if (direction == 0) return
+                if (paused) return
+                tapCount++
+                vibrate()
+                updateNotification()
+                sendBroadcast(
+                    Intent(BROADCAST_TAP_CAPTURED).putExtra(EXTRA_TAP_COUNT, tapCount),
+                )
+                // Best-effort: the count/notification/vibration above have
+                // already happened regardless of whether this succeeds.
+                backgroundChannel?.invokeMethod("recordTap", null)
+            }
+        }
+
+        val session = MediaSessionCompat(this, "JapaSession")
+        session.setPlaybackState(
+            PlaybackStateCompat.Builder()
+                .setState(PlaybackStateCompat.STATE_PLAYING, 0, 1.0f)
+                .setActions(PlaybackStateCompat.ACTION_PLAY_PAUSE)
+                .build(),
+        )
+        session.setPlaybackToRemote(volumeProvider)
+        session.isActive = true
+        mediaSession = session
+    }
+
+    private fun stopMediaSession() {
+        mediaSession?.isActive = false
+        mediaSession?.release()
+        mediaSession = null
+    }
+
+    /** Spins up the headless Dart isolate a screen-off session persists
+     * taps through — see the class doc for why this is separate from the
+     * main UI's engine. */
+    private fun startBackgroundEngine(sessionId: Int) {
+        if (backgroundEngine != null) return
+
+        val loader = FlutterInjector.instance().flutterLoader()
+        if (!loader.initialized()) {
+            loader.startInitialization(applicationContext)
+            loader.ensureInitializationComplete(applicationContext, null)
+        }
+
+        val engine = FlutterEngine(this)
+        engine.dartExecutor.executeDartEntrypoint(
+            DartExecutor.DartEntrypoint(
+                loader.findAppBundlePath(),
+                BACKGROUND_ENTRYPOINT_LIBRARY,
+                BACKGROUND_ENTRYPOINT_FUNCTION,
+            ),
+        )
+
+        val channel = MethodChannel(engine.dartExecutor.binaryMessenger, BACKGROUND_ISOLATE_CHANNEL)
+        channel.invokeMethod("init", mapOf("sessionId" to sessionId))
+
+        backgroundEngine = engine
+        backgroundChannel = channel
+    }
+
+    private fun stopBackgroundEngine() {
+        backgroundChannel = null
+        backgroundEngine?.destroy()
+        backgroundEngine = null
+    }
+
+    private fun vibrate() {
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            (getSystemService(VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            getSystemService(VIBRATOR_SERVICE) as Vibrator
+        }
+        vibrator.vibrate(
+            VibrationEffect.createOneShot(TAP_VIBRATION_MS, VibrationEffect.DEFAULT_AMPLITUDE),
+        )
     }
 
     private fun updateNotification() {
@@ -145,5 +322,11 @@ class JapaForegroundService : Service() {
             setShowBadge(false)
         }
         manager.createNotificationChannel(channel)
+    }
+
+    override fun onDestroy() {
+        stopMediaSession()
+        stopBackgroundEngine()
+        super.onDestroy()
     }
 }
