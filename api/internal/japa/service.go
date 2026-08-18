@@ -20,13 +20,16 @@ var (
 	ErrEmptyBatch     = errors.New("taps batch must not be empty")
 	ErrTapsNotOrdered = errors.New("tap timestamps must be strictly increasing")
 	ErrUniformTiming  = errors.New("tap timing is suspiciously uniform")
-	ErrRateExceeded   = errors.New("tap rate exceeds 120 taps per minute")
+	ErrRateExceeded   = errors.New("tap rate exceeds 200 taps per minute")
 )
 
 const (
 	// maxTapsPerMinute mirrors the PRD.md §7.4 anti-cheat threshold and the
 	// same number docs/TECH_STACK.md §5 uses for the Redis rate-limit key.
-	maxTapsPerMinute = 120
+	// 120 was an untested guess that rejected real fast-paced chanting (a
+	// mala done in ~50s, ~130/min); 200 was picked against actual measured
+	// usage instead.
+	maxTapsPerMinute = 200
 
 	// minTapsForAntiCheat is the smallest batch size that gives a
 	// statistically meaningful sample for the rate/uniformity checks. A
@@ -191,7 +194,7 @@ func (s *Service) resetLiveCounter(ctx context.Context, userID string) error {
 
 // checkRateLimitWindow implements the Redis-backed rolling rate limit from
 // docs/TECH_STACK.md §5: INCR ratelimit:taps:<user_id> with a 60-second
-// TTL, flagging a user who exceeds ~120 taps/minute across separate
+// TTL, flagging a user who exceeds ~200 taps/minute across separate
 // batches rather than just within a single one.
 func (s *Service) checkRateLimitWindow(ctx context.Context, userID string, n int) (bool, error) {
 	key := "ratelimit:taps:" + userID

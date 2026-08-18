@@ -156,7 +156,7 @@ Priority key: **P0** = required for MVP launch · **P1** = fast-follow within ~3
 ### 7.4 Japa / chant tracker
 - **P0** — Screen-off-capable tap counter using hardware volume-key interception, so a phone can stay pocketed during chanting. Local-first (works offline), batched sync to the server.
 - **P0** — Default target: 1 mala (108 chants)/day. Do **not** implement escalating daily targets (100 → 200 → 300) — see the rationale in the founder conversation this PRD is based on; escalating targets increase burnout and streak-breaking, which is the opposite of the intended habit loop.
-- **P0** — Basic anti-cheat: reject sessions where inter-tap timing is suspiciously uniform (real human taps vary ~350–800ms) or where tap rate exceeds ~120/minute.
+- **P0** — Basic anti-cheat: reject sessions where inter-tap timing is suspiciously uniform (real human taps vary ~350–800ms) or where tap rate exceeds ~200/minute (a full mala done in well under a minute is still normal for fast chanting — measured against real usage, not a guess).
 - **P1** — Streak tracking (current + longest), with a 21-day streak unlocking a **7-day** temporary Seva Pass trial (not a permanent unlock — see [§10.3](#103-the-streak-reward-must-be-temporary)).
 - **P1** — "Sankalp Raksha" (streak repair) — a small paid option to restore a single missed day, ₹19.
 - **P2** — Community/circle leaderboards ranked purely by verified chant count, never by payment status.
