@@ -7,7 +7,9 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -57,6 +59,7 @@ class JapaForegroundService : Service() {
         const val ACTION_UPDATE_SESSION_ID = "com.anhad.anhad.japa.UPDATE_SESSION_ID"
         const val EXTRA_COUNT = "count"
         const val EXTRA_SESSION_ID = "session_id"
+        const val EXTRA_CUMULATIVE_BASE = "cumulative_base"
 
         // Persists which Isar session id is currently being targeted, so
         // MainActivity can answer "is a screen-off session running, and
@@ -65,6 +68,17 @@ class JapaForegroundService : Service() {
         // running when asked.
         const val PREFS_NAME = "japa_background_prefs"
         const val PREF_ACTIVE_SESSION_ID = "active_session_id"
+
+        // Taps from every row already rotated past this screen-off session
+        // (mala completions, connectivity-triggered flushes) — persisted
+        // alongside the session id so an unexpected process restart
+        // mid-session (a crash, the OS reclaiming memory, anything short of
+        // an explicit End) can restore it too. Without this, a restart
+        // resets the count JapaSessionController rebuilds its ring/
+        // notification total from to whatever's in the currently-adopted
+        // row alone, silently dropping everything from rows already
+        // rotated past before the restart.
+        const val PREF_CUMULATIVE_BASE = "cumulative_base"
 
         private const val BACKGROUND_ISOLATE_CHANNEL = "com.anhad.anhad/japa_background_isolate"
         private const val BACKGROUND_ENTRYPOINT_LIBRARY =
@@ -88,6 +102,19 @@ class JapaForegroundService : Service() {
         // read as a system alert. Matches the on-screen tap's
         // HapticFeedback.lightImpact() (japa_screen.dart) in weight.
         private const val TAP_VIBRATION_MS = 30L
+
+        // How often to re-assert the MediaSession as active while a
+        // session is running. There's no public API to observe "did
+        // Android just hand volume-key routing to something else" (a
+        // system sound, another app's session, the lock screen), so this
+        // is a defensive, timing-based mitigation rather than a targeted
+        // fix for a specific confirmed trigger — observed on-device:
+        // volume-key taps silently stopped registering (notification
+        // showed no change) until the session was manually stopped and
+        // restarted, which suggests we'd lost routing priority.
+        // Periodically re-claiming it is the standard approach for this
+        // class of Android media-session flakiness.
+        private const val REASSERT_SESSION_INTERVAL_MS = 15_000L
     }
 
     private var tapCount = 0
@@ -95,6 +122,15 @@ class JapaForegroundService : Service() {
     private var mediaSession: MediaSessionCompat? = null
     private var backgroundEngine: FlutterEngine? = null
     private var backgroundChannel: MethodChannel? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val reassertSessionRunnable = object : Runnable {
+        override fun run() {
+            if (mediaSession != null) {
+                mediaSession?.isActive = true
+            }
+            mainHandler.postDelayed(this, REASSERT_SESSION_INTERVAL_MS)
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -108,8 +144,10 @@ class JapaForegroundService : Service() {
                 startMediaSession()
                 if (intent.hasExtra(EXTRA_SESSION_ID)) {
                     val sessionId = intent.getIntExtra(EXTRA_SESSION_ID, -1)
+                    val cumulativeBase = intent.getIntExtra(EXTRA_CUMULATIVE_BASE, 0)
                     getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
                         .putInt(PREF_ACTIVE_SESSION_ID, sessionId)
+                        .putInt(PREF_CUMULATIVE_BASE, cumulativeBase)
                         .apply()
                     startBackgroundEngine(sessionId)
                 }
@@ -131,8 +169,10 @@ class JapaForegroundService : Service() {
             ACTION_UPDATE_SESSION_ID -> {
                 val sessionId = intent.getIntExtra(EXTRA_SESSION_ID, -1)
                 if (sessionId != -1) {
+                    val cumulativeBase = intent.getIntExtra(EXTRA_CUMULATIVE_BASE, 0)
                     getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
                         .putInt(PREF_ACTIVE_SESSION_ID, sessionId)
+                        .putInt(PREF_CUMULATIVE_BASE, cumulativeBase)
                         .apply()
                     backgroundChannel?.invokeMethod(
                         "updateSessionId",
@@ -144,6 +184,7 @@ class JapaForegroundService : Service() {
                 sendBroadcast(Intent(BROADCAST_STATE_CHANGED).putExtra(EXTRA_ENDED, true))
                 getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
                     .remove(PREF_ACTIVE_SESSION_ID)
+                    .remove(PREF_CUMULATIVE_BASE)
                     .apply()
                 stopMediaSession()
                 stopBackgroundEngine()
@@ -197,9 +238,11 @@ class JapaForegroundService : Service() {
         session.setPlaybackToRemote(volumeProvider)
         session.isActive = true
         mediaSession = session
+        mainHandler.postDelayed(reassertSessionRunnable, REASSERT_SESSION_INTERVAL_MS)
     }
 
     private fun stopMediaSession() {
+        mainHandler.removeCallbacks(reassertSessionRunnable)
         mediaSession?.isActive = false
         mediaSession?.release()
         mediaSession = null

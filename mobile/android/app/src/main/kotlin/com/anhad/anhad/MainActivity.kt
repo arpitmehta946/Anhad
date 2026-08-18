@@ -45,6 +45,7 @@ class MainActivity : FlutterActivity() {
                 "startSession" -> {
                     val sessionId = call.argument<Int>("sessionId")
                     val count = call.argument<Int>("count") ?: 0
+                    val cumulativeBase = call.argument<Int>("cumulativeBase") ?: 0
                     // Only the initial start goes through startForegroundService —
                     // it's the one call Android requires a startForeground()
                     // response to within 5s. Everything else below just talks to
@@ -54,6 +55,7 @@ class MainActivity : FlutterActivity() {
                     val intent = Intent(this, JapaForegroundService::class.java)
                         .setAction(JapaForegroundService.ACTION_START)
                         .putExtra(JapaForegroundService.EXTRA_COUNT, count)
+                        .putExtra(JapaForegroundService.EXTRA_CUMULATIVE_BASE, cumulativeBase)
                     if (sessionId != null) {
                         intent.putExtra(JapaForegroundService.EXTRA_SESSION_ID, sessionId)
                     }
@@ -63,18 +65,25 @@ class MainActivity : FlutterActivity() {
                 "getActiveSessionId" -> {
                     val prefs = getSharedPreferences(JapaForegroundService.PREFS_NAME, MODE_PRIVATE)
                     if (prefs.contains(JapaForegroundService.PREF_ACTIVE_SESSION_ID)) {
-                        result.success(prefs.getInt(JapaForegroundService.PREF_ACTIVE_SESSION_ID, -1))
+                        result.success(
+                            mapOf(
+                                "sessionId" to prefs.getInt(JapaForegroundService.PREF_ACTIVE_SESSION_ID, -1),
+                                "cumulativeBase" to prefs.getInt(JapaForegroundService.PREF_CUMULATIVE_BASE, 0),
+                            ),
+                        )
                     } else {
                         result.success(null)
                     }
                 }
                 "updateSessionId" -> {
                     val sessionId = call.argument<Int>("sessionId")
+                    val cumulativeBase = call.argument<Int>("cumulativeBase") ?: 0
                     if (sessionId != null) {
-                        startServiceActionWithSessionId(
-                            JapaForegroundService.ACTION_UPDATE_SESSION_ID,
-                            sessionId,
-                        )
+                        val intent = Intent(this, JapaForegroundService::class.java)
+                            .setAction(JapaForegroundService.ACTION_UPDATE_SESSION_ID)
+                            .putExtra(JapaForegroundService.EXTRA_SESSION_ID, sessionId)
+                            .putExtra(JapaForegroundService.EXTRA_CUMULATIVE_BASE, cumulativeBase)
+                        startService(intent)
                     }
                     result.success(null)
                 }
@@ -153,13 +162,6 @@ class MainActivity : FlutterActivity() {
     private fun startServiceAction(action: String, count: Int? = null) {
         val intent = Intent(this, JapaForegroundService::class.java).setAction(action)
         if (count != null) intent.putExtra(JapaForegroundService.EXTRA_COUNT, count)
-        startService(intent)
-    }
-
-    private fun startServiceActionWithSessionId(action: String, sessionId: Int) {
-        val intent = Intent(this, JapaForegroundService::class.java)
-            .setAction(action)
-            .putExtra(JapaForegroundService.EXTRA_SESSION_ID, sessionId)
         startService(intent)
     }
 

@@ -6,6 +6,7 @@ import 'package:isar_community/isar.dart';
 
 import '../../config.dart';
 import '../auth/auth_controller.dart';
+import 'background/background_japa_channel.dart' show ActiveSessionInfo;
 import 'background/background_japa_controller.dart';
 import 'data/daily_japa_total.dart';
 import 'data/daily_total_store.dart';
@@ -90,14 +91,20 @@ DateTime _nextLocalMidnight() {
 /// volume-key tap recorded by the headless background isolate (screen-off
 /// session, docs/PRD.md §7.4) updates the ring and count here exactly the
 /// same way an on-screen tap does — there's one source of truth, not two
-/// counters that happen to agree only sometimes.
+/// counters that happen to agree only sometimes. That same watcher also
+/// drives the lock-screen notification's count (see
+/// [BackgroundJapaController.updateNotificationCount]) — the notification
+/// used to keep its own separately-incremented counter that only on-screen
+/// taps knew to update, so a volume-key tap would advance the ring but not
+/// the notification, and the next on-screen tap would push that
+/// now-stale counter and clobber whatever the notification actually showed.
 class JapaSessionController extends StateNotifier<JapaSessionState> {
   JapaSessionController(
     this._isar,
     this._sync, {
-    this.onTap,
     this.getActiveSessionId,
     this.updateActiveSessionId,
+    this.updateNotificationCount,
   }) : super(const JapaSessionState()) {
     _init();
   }
@@ -105,28 +112,49 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
   final Isar _isar;
   final JapaSyncService _sync;
 
-  /// Notified after every tap lands in Isar — wired to
-  /// [BackgroundJapaController.recordTap] so the screen-off notification's
-  /// live count stays in sync regardless of whether this tap came from the
-  /// mala ring or a volume-key press.
-  final void Function()? onTap;
-
   /// Asks the native service whether a screen-off session is currently
-  /// running and, if so, which Isar session id it's targeting — so a fresh
-  /// app open adopts that session instead of starting a second, separately
-  /// counted one.
-  final Future<int?> Function()? getActiveSessionId;
+  /// running and, if so, which Isar session id it's targeting (plus its
+  /// cumulative base — see [_cumulativeBase]) — so a fresh app open adopts
+  /// that session instead of starting a second, separately counted one.
+  final Future<ActiveSessionInfo?> Function()? getActiveSessionId;
 
   /// Tells the native service to retarget an in-progress screen-off session
-  /// at a new Isar row — called after every rotation
-  /// (_flushCurrentAndRotate). Without this, a session that outlives one
-  /// mala keeps writing volume-key taps to the now-abandoned old row: the
-  /// notification (native-counted, unaffected) keeps climbing while the
-  /// in-app ring (watching the new row) stalls, until the session is ended
-  /// and restarted resyncs them by coincidence.
-  final void Function(int newSessionId)? updateActiveSessionId;
+  /// at a new Isar row, persisting the new cumulative base alongside it —
+  /// called after every rotation (_flushCurrentAndRotate). Without the
+  /// retarget, a session that outlives one mala keeps writing volume-key
+  /// taps to the now-abandoned old row: the notification (native-counted,
+  /// unaffected) keeps climbing while the in-app ring (watching the new
+  /// row) stalls, until the session is ended and restarted resyncs them by
+  /// coincidence. Without persisting the cumulative base too, an
+  /// unexpected process restart mid-session would silently drop every tap
+  /// already rotated past before the restart.
+  final void Function(int newSessionId, int cumulativeBase)? updateActiveSessionId;
+
+  /// Pushes this screen visit's true cumulative tap count to the
+  /// notification — called every time the session watcher recomputes
+  /// ring/round state, from whichever tap source triggered it. A no-op
+  /// (via BackgroundJapaController's own guard) when no screen-off session
+  /// is running.
+  final void Function(int total)? updateNotificationCount;
 
   int? _sessionId;
+
+  /// Taps from every row this screen visit has already rotated past (mala
+  /// completions, connectivity-triggered flushes) — added to the current
+  /// row's own tap count to get a total that climbs continuously across
+  /// rotations, since the Isar row itself resets to empty each time
+  /// (_flushCurrentAndRotate always starts the replacement fresh). Carried
+  /// forward regardless of whether a rotated batch synced or was rejected
+  /// — this tracks taps physically made this visit, not confirmed-synced
+  /// taps (that distinction is what the daily total, which does exclude
+  /// rejected batches, is for).
+  int _cumulativeBase = 0;
+
+  /// Exposed so a caller starting a screen-off session (japa_screen.dart)
+  /// can hand the native service this exact value to persist, matching
+  /// whatever this controller currently has — see [_cumulativeBase].
+  int get cumulativeBase => _cumulativeBase;
+
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
   StreamSubscription<LocalJapaSession?>? _sessionWatchSub;
   StreamSubscription<DailyJapaTotal?>? _dailyTotalWatchSub;
@@ -154,10 +182,11 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
     // session — otherwise reopening the app after chanting screen-off would
     // start counting a second, empty session while the real taps sit in a
     // different row this controller never looks at.
-    final activeId = await getActiveSessionId?.call();
+    final info = await getActiveSessionId?.call();
     int sessionId;
-    if (activeId != null && await _isar.localJapaSessions.get(activeId) != null) {
-      sessionId = activeId;
+    if (info != null && await _isar.localJapaSessions.get(info.sessionId) != null) {
+      sessionId = info.sessionId;
+      _cumulativeBase = info.cumulativeBase;
     } else {
       final session = LocalJapaSession();
       await _isar.writeTxn(() => _isar.localJapaSessions.put(session));
@@ -189,20 +218,25 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
     });
   }
 
-  /// Recomputes ring/round state from a session's total tap count. Used at
-  /// init (no flush — a resumed session may already be mid- or
-  /// past-completion and shouldn't re-trigger a flush just for being
-  /// loaded) and by the session watcher (does flush — a live crossing of a
-  /// mala boundary, from either tap source, is the real completion event).
-  void _applyTapTotal(int total, {required bool triggerFlushOnCompletion}) {
-    final rounds = total ~/ malaSize;
-    final inRound = total % malaSize;
-    final justCompletedRound = triggerFlushOnCompletion && inRound == 0 && total > 0;
+  /// Recomputes ring/round state — and pushes the notification's count —
+  /// from the current row's tap total plus everything already rotated past
+  /// this visit. Used at init (no flush — a resumed session may already be
+  /// mid- or past-completion and shouldn't re-trigger a flush just for
+  /// being loaded) and by the session watcher (does flush — a live crossing
+  /// of a mala boundary, from either tap source, is the real completion
+  /// event).
+  void _applyTapTotal(int rowTotal, {required bool triggerFlushOnCompletion}) {
+    final cumulative = _cumulativeBase + rowTotal;
+    final rounds = cumulative ~/ malaSize;
+    final inRound = cumulative % malaSize;
+    final justCompletedRound =
+        triggerFlushOnCompletion && inRound == 0 && rowTotal > 0;
     state = state.copyWith(
       tapsInRound: inRound,
       roundsCompleted: rounds,
       justFilledBeadIndex: inRound == 0 ? malaSize - 1 : inRound - 1,
     );
+    updateNotificationCount?.call(cumulative);
     if (justCompletedRound) {
       // A completed mala is a natural checkpoint — sync it now rather than
       // waiting for the user to leave the screen or a connectivity change.
@@ -215,9 +249,34 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
     _sessionWatchSub = _isar.localJapaSessions
         .watchObject(id, fireImmediately: false)
         .listen((session) {
-      if (session == null || !mounted) return;
+      if (!mounted) return;
+      if (session == null) {
+        // The row we were watching is gone. This isn't a rotation we
+        // triggered ourselves (those already create the replacement and
+        // re-subscribe before the old row is deleted) — it means some
+        // other flush of this same id completed out from under us, most
+        // plausibly a previous controller instance's dispose-time flush
+        // (fire-and-forget, so it can outlive that instance) finishing
+        // after this instance already adopted the same session on
+        // startup. Left unhandled, the ring stays stuck showing whatever
+        // it last displayed until something else forces a re-derivation
+        // (e.g. a full app restart) — self-heal immediately instead.
+        unawaited(_startFreshSession());
+        return;
+      }
       _applyTapTotal(session.taps.length, triggerFlushOnCompletion: true);
     });
+  }
+
+  Future<void> _startFreshSession() async {
+    final fresh = LocalJapaSession();
+    await _isar.writeTxn(() => _isar.localJapaSessions.put(fresh));
+    if (!mounted) return;
+    _sessionId = fresh.id;
+    state = state.copyWith(sessionId: fresh.id);
+    _applyTapTotal(0, triggerFlushOnCompletion: false);
+    _watchSession(fresh.id);
+    updateActiveSessionId?.call(fresh.id, _cumulativeBase);
   }
 
   Future<void> _watchDailyTotal() async {
@@ -262,10 +321,9 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
     // The await above is a suspension point: the screen may have been
     // popped (disposing this controller) while it was in flight. The tap's
     // Isar write already landed either way, so it's safe to just stop here
-    // — ring/count/daily-total state updates arrive via the watchers set
-    // up in _init, not from here directly.
-    if (!mounted) return;
-    onTap?.call();
+    // — ring/count/daily-total/notification updates all arrive via the
+    // watchers set up in _init, regardless of which input method (on-screen
+    // or, for a screen-off session, a volume key) produced this tap.
   }
 
   /// Connectivity just came back while still on-screen: flush what's
@@ -287,13 +345,18 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
       await adjustDailyTotal(_isar, -tapCount);
     }
     if (outcome != FlushOutcome.stillQueued) {
+      // Carry the rotated row's count forward regardless of sync outcome —
+      // the ring/notification track taps physically made this visit, not
+      // confirmed-synced taps (adjustDailyTotal above is what excludes a
+      // rejected batch from the figure that does need to mean "confirmed").
+      _cumulativeBase += tapCount;
       final fresh = LocalJapaSession();
       await _isar.writeTxn(() => _isar.localJapaSessions.put(fresh));
       if (!mounted) return;
       _sessionId = fresh.id;
       state = state.copyWith(sessionId: fresh.id);
       _watchSession(fresh.id);
-      updateActiveSessionId?.call(fresh.id);
+      updateActiveSessionId?.call(fresh.id, _cumulativeBase);
     }
   }
 
@@ -335,9 +398,9 @@ final japaSessionControllerProvider = StateNotifierProvider.autoDispose<
   final controller = JapaSessionController(
     isar,
     sync,
-    onTap: background.recordTap,
     getActiveSessionId: background.getActiveSessionId,
     updateActiveSessionId: background.updateActiveSessionId,
+    updateNotificationCount: background.updateNotificationCount,
   );
   // No ref.onDispose(controller.dispose) here — StateNotifierProvider
   // already disposes the notifier it creates automatically. Registering it

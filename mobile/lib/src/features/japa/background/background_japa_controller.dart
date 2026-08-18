@@ -51,8 +51,8 @@ class BackgroundJapaController extends StateNotifier<BackgroundJapaState> {
   /// toggle reflects what's really happening rather than defaulting to
   /// "off" until the user notices and touches it.
   Future<void> _restoreActiveSession() async {
-    final activeId = await _channel.getActiveSessionId();
-    if (activeId == null || !mounted) return;
+    final info = await _channel.getActiveSessionId();
+    if (info == null || !mounted) return;
     state = state.copyWith(active: true);
   }
 
@@ -82,26 +82,35 @@ class BackgroundJapaController extends StateNotifier<BackgroundJapaState> {
   Future<bool> requestNotificationPermission() =>
       _channel.requestNotificationPermission();
 
-  Future<void> start({required int sessionId, required int currentCount}) async {
-    await _channel.startSession(sessionId: sessionId, count: currentCount);
+  Future<void> start({
+    required int sessionId,
+    required int currentCount,
+    required int cumulativeBase,
+  }) async {
+    await _channel.startSession(
+      sessionId: sessionId,
+      count: currentCount,
+      cumulativeBase: cumulativeBase,
+    );
     if (!mounted) return;
     state = BackgroundJapaState(active: true, totalTaps: currentCount);
   }
 
-  /// The Isar session id the native service is targeting right now, or
-  /// null if no screen-off session is running — used by
-  /// JapaSessionController on init to adopt an already-running session
+  /// What the native service is targeting right now, or null if no
+  /// screen-off session is running — used by JapaSessionController on init
+  /// to adopt an already-running session (and restore its cumulative base)
   /// instead of starting a second, separately-counted one.
-  Future<int?> getActiveSessionId() => _channel.getActiveSessionId();
+  Future<ActiveSessionInfo?> getActiveSessionId() => _channel.getActiveSessionId();
 
   /// Tells the native service (and its headless isolate) to retarget an
-  /// in-progress session at a different Isar row. Called by
-  /// JapaSessionController whenever it rotates to a fresh session — a
-  /// no-op if no screen-off session is actually running, so callers don't
-  /// need to check first.
-  void updateActiveSessionId(int newSessionId) {
+  /// in-progress session at a different Isar row, persisting the new
+  /// cumulative base alongside it so it survives an unexpected process
+  /// restart too. Called by JapaSessionController whenever it rotates to a
+  /// fresh session — a no-op if no screen-off session is actually running,
+  /// so callers don't need to check first.
+  void updateActiveSessionId(int newSessionId, int cumulativeBase) {
     if (!state.active) return;
-    unawaited(_channel.updateSessionId(newSessionId));
+    unawaited(_channel.updateSessionId(newSessionId, cumulativeBase));
   }
 
   Future<void> pause() async {
@@ -122,15 +131,26 @@ class BackgroundJapaController extends StateNotifier<BackgroundJapaState> {
     state = const BackgroundJapaState();
   }
 
-  /// Called for every tap recorded while a session is active — on-screen
-  /// today, volume-key captured once phase 2 lands — so the notification
-  /// stays live regardless of where the tap came from. A no-op when no
-  /// session is running or it's paused.
-  void recordTap() {
-    if (!state.active || state.paused) return;
-    final updated = state.totalTaps + 1;
-    state = state.copyWith(totalTaps: updated);
-    unawaited(_channel.updateCount(updated));
+  /// Pushes this screen visit's true cumulative tap count — from
+  /// JapaSessionController, which derives it from Isar the same way it
+  /// derives the ring's count — to the native notification. A no-op when
+  /// no screen-off session is running.
+  ///
+  /// Deliberately doesn't gate on `state.paused`: pause only stops the
+  /// native service from counting *volume-key* presses (see
+  /// JapaForegroundService's onAdjustVolume) — it was never meant to
+  /// suppress on-screen taps, which reach Isar the same way regardless of
+  /// the screen-off session's pause state. Previously this method
+  /// maintained its own incrementing counter (`totalTaps`) rather than
+  /// taking a value, which is what let it drift from reality: a
+  /// volume-key tap updated the notification directly in native code
+  /// without this counter ever finding out, so the next on-screen tap
+  /// would push its own now-stale value and clobber whatever the
+  /// notification actually showed.
+  void updateNotificationCount(int total) {
+    if (!state.active) return;
+    state = state.copyWith(totalTaps: total);
+    unawaited(_channel.updateCount(total));
   }
 }
 

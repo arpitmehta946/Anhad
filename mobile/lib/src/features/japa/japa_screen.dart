@@ -122,6 +122,7 @@ class _JapaScreenState extends ConsumerState<JapaScreen>
         await controller.requestBatteryExemption();
       }
     }
+    final japaSessionController = ref.read(japaSessionControllerProvider.notifier);
     final japaState = ref.read(japaSessionControllerProvider);
     final sessionId = japaState.sessionId;
     if (sessionId == null) return;
@@ -130,7 +131,11 @@ class _JapaScreenState extends ConsumerState<JapaScreen>
     // (and the session it's now sharing) should show the real total.
     final currentCount =
         japaState.roundsCompleted * malaSize + japaState.tapsInRound;
-    await controller.start(sessionId: sessionId, currentCount: currentCount);
+    await controller.start(
+      sessionId: sessionId,
+      currentCount: currentCount,
+      cumulativeBase: japaSessionController.cumulativeBase,
+    );
   }
 
   @override

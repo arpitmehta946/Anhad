@@ -1,5 +1,18 @@
 import 'package:flutter/services.dart';
 
+/// What the native service is currently targeting, restored on app open —
+/// see [BackgroundJapaChannel.getActiveSessionId].
+class ActiveSessionInfo {
+  const ActiveSessionInfo({required this.sessionId, required this.cumulativeBase});
+
+  final int sessionId;
+
+  /// Taps from every row already rotated past this screen-off session,
+  /// persisted natively alongside the session id so it survives an
+  /// unexpected process restart mid-session, not just an explicit End.
+  final int cumulativeBase;
+}
+
 /// Talks to [JapaForegroundService] on the Android side (docs/PRD.md §7.4):
 /// starts/stops the foreground service that keeps a japa session alive and
 /// its notification visible with the screen off, and checks/requests the
@@ -29,18 +42,29 @@ class BackgroundJapaChannel {
     }
   }
 
-  Future<void> startSession({required int sessionId, required int count}) =>
+  Future<void> startSession({
+    required int sessionId,
+    required int count,
+    required int cumulativeBase,
+  }) =>
       _channel.invokeMethod(
         'startSession',
-        {'sessionId': sessionId, 'count': count},
+        {'sessionId': sessionId, 'count': count, 'cumulativeBase': cumulativeBase},
       );
 
-  /// The Isar session id the native service is currently targeting, or
-  /// null if no screen-off session is running — read from SharedPreferences
-  /// on the native side rather than a live service binding, so it answers
+  /// What the native service is currently targeting, or null if no
+  /// screen-off session is running — read from SharedPreferences on the
+  /// native side rather than a live service binding, so it answers
   /// correctly even if the service isn't currently running.
-  Future<int?> getActiveSessionId() =>
-      _channel.invokeMethod<int>('getActiveSessionId');
+  Future<ActiveSessionInfo?> getActiveSessionId() async {
+    final result = await _channel.invokeMethod('getActiveSessionId');
+    if (result == null) return null;
+    final map = (result as Map).cast<String, dynamic>();
+    return ActiveSessionInfo(
+      sessionId: map['sessionId'] as int,
+      cumulativeBase: map['cumulativeBase'] as int,
+    );
+  }
 
   /// Retargets an already-running session at a different Isar row —
   /// needed because JapaSessionController rotates to a fresh session every
@@ -48,8 +72,11 @@ class BackgroundJapaChannel {
   /// _flushCurrentAndRotate), and without this the native service and its
   /// headless isolate would keep appending taps to the old, abandoned row
   /// nobody is watching anymore.
-  Future<void> updateSessionId(int sessionId) =>
-      _channel.invokeMethod('updateSessionId', {'sessionId': sessionId});
+  Future<void> updateSessionId(int sessionId, int cumulativeBase) =>
+      _channel.invokeMethod(
+        'updateSessionId',
+        {'sessionId': sessionId, 'cumulativeBase': cumulativeBase},
+      );
 
   Future<void> pause() => _channel.invokeMethod('pause');
 
