@@ -71,8 +71,22 @@ func healthHandler(logger *slog.Logger, st *store.Store) http.HandlerFunc {
 func logRequests(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			logger.Info("request", "method", r.Method, "path", r.URL.Path)
-			next.ServeHTTP(w, r)
+			rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+			next.ServeHTTP(rec, r)
+			logger.Info("request", "method", r.Method, "path", r.URL.Path, "status", rec.status)
 		})
 	}
+}
+
+// statusRecorder captures the status code a handler writes, since
+// http.ResponseWriter doesn't expose it after the fact and logRequests logs
+// after the handler runs so it can report the outcome, not just the intent.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(status int) {
+	r.status = status
+	r.ResponseWriter.WriteHeader(status)
 }

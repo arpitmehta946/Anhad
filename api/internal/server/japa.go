@@ -44,7 +44,11 @@ func submitJapaTapsHandler(logger *slog.Logger, japaSvc *japa.Service) http.Hand
 			writeError(w, http.StatusBadRequest, err.Error())
 		case errors.Is(err, japa.ErrUniformTiming), errors.Is(err, japa.ErrRateExceeded):
 			// 422: the request is well-formed, but the anti-cheat checks
-			// reject the batch itself (PRD.md §7.4).
+			// reject the batch itself (PRD.md §7.4). Logged at Warn (not
+			// just surfaced via the response) since a spike in these for a
+			// legitimate user is exactly what you'd want to notice —
+			// distinct from the 400s above, which are just malformed input.
+			logger.Warn("japa anti-cheat rejection", "user_id", claims.Subject, "taps", len(req.Taps), "error", err)
 			writeError(w, http.StatusUnprocessableEntity, err.Error())
 		default:
 			logger.Error("japa tap submission failed", "error", err)
