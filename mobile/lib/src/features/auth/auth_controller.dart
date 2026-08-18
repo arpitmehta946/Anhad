@@ -3,6 +3,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../../config.dart';
 import 'data/auth_api_client.dart';
+import 'data/jwt.dart';
 import 'data/token_store.dart';
 
 class AuthState {
@@ -90,8 +91,6 @@ class AuthController extends StateNotifier<AuthState> {
       await _tokenStore.save(
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
-        accessTokenExpiry:
-            DateTime.now().add(Duration(seconds: tokens.expiresIn)),
       );
       if (!mounted) return;
       state = state.copyWith(isSubmitting: false, isAuthenticated: true);
@@ -121,9 +120,11 @@ class AuthController extends StateNotifier<AuthState> {
     final accessToken = await _tokenStore.readAccessToken();
     if (accessToken == null) return null;
 
-    final expiry = await _tokenStore.readAccessTokenExpiry();
+    final expiry = jwtExpiry(accessToken);
     final expiringSoon = expiry == null ||
-        DateTime.now().isAfter(expiry.subtract(const Duration(seconds: 30)));
+        DateTime.now().toUtc().isAfter(
+              expiry.subtract(const Duration(seconds: 30)),
+            );
     if (!expiringSoon) return accessToken;
 
     final refreshToken = await _tokenStore.readRefreshToken();
@@ -134,8 +135,6 @@ class AuthController extends StateNotifier<AuthState> {
       await _tokenStore.save(
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
-        accessTokenExpiry:
-            DateTime.now().add(Duration(seconds: tokens.expiresIn)),
       );
       return tokens.accessToken;
     } catch (_) {
