@@ -80,8 +80,13 @@ cd api && cp .env.example .env && go run ./cmd/api   # http://localhost:8080/hea
 cd mobile && flutter pub get && flutter run
 ```
 
-`mobile/` platform folders (`android/`, `ios/`) are generated, not checked
-in — see `mobile/README.md` for the one-time `flutter create` step.
+`mobile/ios/` (and the other untouched platform folders) is generated, not
+checked in — see `mobile/README.md` for the one-time `flutter create` step.
+`mobile/android/` **is** checked in as of the screen-off japa feature
+(`docs/PRD.md` §7.4): it now contains real hand-written native code
+(a foreground service, manifest permissions, platform-channel glue in
+`MainActivity.kt`) that `flutter create` can't regenerate. Only its
+generated/machine-local build output is gitignored.
 
 ## Working conventions
 

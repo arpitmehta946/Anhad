@@ -6,6 +6,7 @@ import 'package:isar_community/isar.dart';
 
 import '../../config.dart';
 import '../auth/auth_controller.dart';
+import 'background/background_japa_controller.dart';
 import 'data/daily_japa_total.dart';
 import 'data/isar_provider.dart';
 import 'data/japa_api_client.dart';
@@ -78,13 +79,19 @@ DateTime _nextLocalMidnight() {
 /// flushes to Postgres when connectivity returns or the session ends —
 /// never a network call per tap (docs/TECH_STACK.md §5).
 class JapaSessionController extends StateNotifier<JapaSessionState> {
-  JapaSessionController(this._isar, this._sync)
+  JapaSessionController(this._isar, this._sync, {this.onTap})
       : super(const JapaSessionState()) {
     _init();
   }
 
   final Isar _isar;
   final JapaSyncService _sync;
+
+  /// Notified after every tap lands in Isar — wired to
+  /// [BackgroundJapaController.recordTap] so the screen-off notification's
+  /// live count stays in sync regardless of whether this tap came from the
+  /// mala ring or (once phase 2 lands) a volume-key press.
+  final void Function()? onTap;
   int? _sessionId;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
   Timer? _midnightTimer;
@@ -209,6 +216,7 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
     // either way, so it's safe to just stop here.
     if (!mounted) return;
 
+    onTap?.call();
     await _adjustDailyTotal(1);
     if (!mounted) return;
 
@@ -288,7 +296,11 @@ final japaSessionControllerProvider = StateNotifierProvider.autoDispose<
     tokenProvider: authController.validAccessToken,
   );
   final sync = JapaSyncService(isar: isar, api: api);
-  final controller = JapaSessionController(isar, sync);
+  final controller = JapaSessionController(
+    isar,
+    sync,
+    onTap: () => ref.read(backgroundJapaControllerProvider.notifier).recordTap(),
+  );
   ref.onDispose(controller.dispose);
   return controller;
 });

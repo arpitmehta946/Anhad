@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../theme/colors.dart';
+import 'background/background_japa_controller.dart';
+import 'background/background_japa_settings.dart';
 import 'japa_session_controller.dart';
 import 'mala_ring_painter.dart';
 
@@ -63,14 +65,81 @@ class _JapaScreenState extends ConsumerState<JapaScreen>
     }
   }
 
+  Future<void> _startScreenOffSession() async {
+    final controller = ref.read(backgroundJapaControllerProvider.notifier);
+
+    if (!await controller.hasNotificationPermission()) {
+      final granted = await controller.requestNotificationPermission();
+      if (!granted) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Notification permission is needed to show the live count '
+              'while chanting screen-off.',
+            ),
+          ),
+        );
+        return;
+      }
+    }
+
+    if (await controller.needsBatteryExemption()) {
+      if (!mounted) return;
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Keep the session running'),
+          content: const Text(
+            'Android may otherwise stop your chant count a few minutes '
+            'after the screen turns off. The next screen lets you exempt '
+            'Anhad from battery optimization so it keeps counting.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Skip'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Continue'),
+            ),
+          ],
+        ),
+      );
+      if (proceed ?? false) {
+        await controller.requestBatteryExemption();
+      }
+    }
+    final currentCount = ref.read(japaSessionControllerProvider).tapsInRound;
+    await controller.start(currentCount);
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(japaSessionControllerProvider);
+    final backgroundModeEnabled = ref.watch(backgroundJapaSettingsProvider);
+    final backgroundState = ref.watch(backgroundJapaControllerProvider);
     final reduceMotion = MediaQuery.of(context).disableAnimations;
     final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Japa')),
+      appBar: AppBar(
+        title: const Text('Japa'),
+        actions: [
+          Row(
+            children: [
+              const Text('Screen-off', style: TextStyle(fontSize: 12)),
+              Switch(
+                value: backgroundModeEnabled,
+                onChanged: (value) => ref
+                    .read(backgroundJapaSettingsProvider.notifier)
+                    .setEnabled(value),
+              ),
+            ],
+          ),
+        ],
+      ),
       body: SafeArea(
         child: Semantics(
           button: true,
@@ -153,6 +222,50 @@ class _JapaScreenState extends ConsumerState<JapaScreen>
                                 ),
                                 textAlign: TextAlign.center,
                               ),
+                            ],
+                            if (backgroundModeEnabled) ...[
+                              const SizedBox(height: 16),
+                              if (!backgroundState.active)
+                                OutlinedButton(
+                                  onPressed: _startScreenOffSession,
+                                  child: const Text('Start screen-off session'),
+                                )
+                              else
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    OutlinedButton(
+                                      onPressed: backgroundState.paused
+                                          ? ref
+                                              .read(
+                                                backgroundJapaControllerProvider
+                                                    .notifier,
+                                              )
+                                              .resume
+                                          : ref
+                                              .read(
+                                                backgroundJapaControllerProvider
+                                                    .notifier,
+                                              )
+                                              .pause,
+                                      child: Text(
+                                        backgroundState.paused
+                                            ? 'Resume'
+                                            : 'Pause',
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    OutlinedButton(
+                                      onPressed: ref
+                                          .read(
+                                            backgroundJapaControllerProvider
+                                                .notifier,
+                                          )
+                                          .end,
+                                      child: const Text('End session'),
+                                    ),
+                                  ],
+                                ),
                             ],
                           ],
                         ),
