@@ -21,6 +21,14 @@ var (
 	ErrTapsNotOrdered = errors.New("tap timestamps must be strictly increasing")
 	ErrUniformTiming  = errors.New("tap timing is suspiciously uniform")
 	ErrRateExceeded   = errors.New("tap rate exceeds 200 taps per minute")
+
+	// ErrBurstLimitExceeded is the cross-batch cousin of ErrRateExceeded —
+	// kept as a distinct sentinel (rather than reusing ErrRateExceeded) so
+	// logs and tests can tell "this batch's own recorded pace was too
+	// fast" apart from "too much arrived in one submission burst," which
+	// have very different causes and, before this fix, were easy to
+	// conflate when debugging a rejection after the fact.
+	ErrBurstLimitExceeded = errors.New("too many taps submitted in a short window")
 )
 
 const (
@@ -51,6 +59,12 @@ const (
 	// limit (docs/TECH_STACK.md §5), independent of the within-batch rate
 	// check above.
 	rateLimitWindow = 60 * time.Second
+
+	// liveSubmissionThreshold bounds how stale a batch's last tap can be
+	// and still count as "live" for the cross-batch burst check. Generous
+	// enough to cover normal flush latency (mala completion, connectivity
+	// restored) without also covering a genuine backlog catch-up.
+	liveSubmissionThreshold = 5 * time.Minute
 )
 
 // Session is what a successful tap-batch flush wrote to japa_sessions.
@@ -99,15 +113,27 @@ func (s *Service) SubmitTaps(ctx context.Context, userID string, taps []time.Tim
 	}
 
 	// Cross-batch rolling window: catches a user staying under the
-	// per-batch limit by splitting a fast sequence across several
-	// requests. Batches that already failed the checks above never reach
-	// here, so a rejected batch doesn't itself consume window budget.
-	limited, err := s.checkRateLimitWindow(ctx, userID, len(taps))
-	if err != nil {
-		return nil, fmt.Errorf("check rate limit window: %w", err)
-	}
-	if limited {
-		return nil, ErrRateExceeded
+	// per-batch limit by splitting a *live* fast sequence across several
+	// requests. It only applies to batches that just happened — a batch
+	// recorded well before now (the client was offline, its auth had
+	// lapsed, anything that delays a flush) already proved its honest
+	// pace via checkRate/checkUniformity above, using its own recorded
+	// timestamps. Counting it against this window too means a backlog of
+	// several perfectly legitimate sessions that all happen to sync in
+	// the same burst on reconnect gets bulk-rejected on nothing more than
+	// bad luck in reconnection timing — the window would see e.g. 500+
+	// taps arrive in under a second and reject it, even though every one
+	// of those taps was chanted at a normal human pace over the preceding
+	// half hour. Batches that failed the checks above never reach here,
+	// so a rejected batch doesn't itself consume window budget either way.
+	if isLiveSubmission(taps[len(taps)-1]) {
+		limited, err := s.checkRateLimitWindow(ctx, userID, len(taps))
+		if err != nil {
+			return nil, fmt.Errorf("check rate limit window: %w", err)
+		}
+		if limited {
+			return nil, ErrBurstLimitExceeded
+		}
 	}
 
 	if err := s.incrLiveCounter(ctx, userID, len(taps)); err != nil {
@@ -134,6 +160,14 @@ func (s *Service) SubmitTaps(ctx context.Context, userID string, taps []time.Tim
 	}
 
 	return &Session{ID: sessionID, TapCount: len(taps), StartedAt: startedAt, EndedAt: endedAt}, nil
+}
+
+// isLiveSubmission reports whether a batch's last tap happened recently
+// enough to treat this as real-time chanting rather than a delayed/backlog
+// flush — see the cross-batch window comment in SubmitTaps for why that
+// distinction matters.
+func isLiveSubmission(lastTap time.Time) bool {
+	return time.Since(lastTap) < liveSubmissionThreshold
 }
 
 // checkRate rejects a batch whose average tap rate exceeds

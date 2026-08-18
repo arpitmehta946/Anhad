@@ -92,7 +92,7 @@ Either way:
 Redis exists to keep the *hot path* (every japa tap, every feed load) off the relational database entirely:
 
 - **Japa taps:** `HINCRBY japa:live:<user_id> count 1` — sub-millisecond, in-memory. The client batches and flushes to Postgres periodically (e.g. every 108 taps or after 30 seconds idle), not on every single tap.
-- **Anti-cheat rate limiting:** `INCR ratelimit:taps:<user_id>` with a 60-second TTL; sessions exceeding ~200 taps/minute or showing unnaturally uniform tap timing get flagged.
+- **Anti-cheat rate limiting:** `INCR ratelimit:taps:<user_id>` with a 60-second TTL; sessions exceeding ~200 taps/minute or showing unnaturally uniform tap timing get flagged. This cross-batch window only applies to batches recorded within the last few minutes ("live" chanting) — a delayed/backlog flush (client was offline, auth had lapsed, anything that holds up a sync) already proved its honest pace via the per-batch check using its own recorded timestamps, and would otherwise get bulk-rejected purely for arriving in one burst on reconnect.
 - **Trending audio:** Redis sorted sets (`ZINCRBY trending:audio 1 <audio_id>`) power the "use this sound" trending tab without a live database aggregation query.
 - **Feed cache:** the top N reel IDs per category live in a sorted set; the API serves cached JSON rather than re-querying Postgres per request.
 

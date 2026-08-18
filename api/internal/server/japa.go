@@ -42,7 +42,7 @@ func submitJapaTapsHandler(logger *slog.Logger, japaSvc *japa.Service) http.Hand
 			})
 		case errors.Is(err, japa.ErrEmptyBatch), errors.Is(err, japa.ErrTapsNotOrdered):
 			writeError(w, http.StatusBadRequest, err.Error())
-		case errors.Is(err, japa.ErrUniformTiming), errors.Is(err, japa.ErrRateExceeded):
+		case errors.Is(err, japa.ErrUniformTiming), errors.Is(err, japa.ErrRateExceeded), errors.Is(err, japa.ErrBurstLimitExceeded):
 			// 422: the request is well-formed, but the anti-cheat checks
 			// reject the batch itself (PRD.md §7.4). Logged at Warn (not
 			// just surfaced via the response) since a spike in these for a
