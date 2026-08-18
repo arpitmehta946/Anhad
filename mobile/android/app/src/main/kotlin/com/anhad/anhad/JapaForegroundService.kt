@@ -145,10 +145,16 @@ class JapaForegroundService : Service() {
                 if (intent.hasExtra(EXTRA_SESSION_ID)) {
                     val sessionId = intent.getIntExtra(EXTRA_SESSION_ID, -1)
                     val cumulativeBase = intent.getIntExtra(EXTRA_CUMULATIVE_BASE, 0)
+                    // commit(), not apply(): this can be immediately
+                    // followed by the process being killed (force-close),
+                    // and apply()'s write to disk happens on a background
+                    // thread that isn't guaranteed to finish before that —
+                    // losing it would leave a stale (or missing) active
+                    // session id for the next launch to wrongly adopt.
                     getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
                         .putInt(PREF_ACTIVE_SESSION_ID, sessionId)
                         .putInt(PREF_CUMULATIVE_BASE, cumulativeBase)
-                        .apply()
+                        .commit()
                     startBackgroundEngine(sessionId)
                 }
             }
@@ -173,7 +179,7 @@ class JapaForegroundService : Service() {
                     getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
                         .putInt(PREF_ACTIVE_SESSION_ID, sessionId)
                         .putInt(PREF_CUMULATIVE_BASE, cumulativeBase)
-                        .apply()
+                        .commit()
                     backgroundChannel?.invokeMethod(
                         "updateSessionId",
                         mapOf("sessionId" to sessionId),
@@ -185,7 +191,7 @@ class JapaForegroundService : Service() {
                 getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
                     .remove(PREF_ACTIVE_SESSION_ID)
                     .remove(PREF_CUMULATIVE_BASE)
-                    .apply()
+                    .commit()
                 stopMediaSession()
                 stopBackgroundEngine()
                 stopForeground(STOP_FOREGROUND_REMOVE)

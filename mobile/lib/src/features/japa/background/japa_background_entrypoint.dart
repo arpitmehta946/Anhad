@@ -4,6 +4,7 @@ import 'package:isar_community/isar.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../data/daily_japa_total.dart';
+import '../data/japa_preferences.dart';
 import '../data/local_japa_session.dart';
 import '../data/tap_recorder.dart';
 
@@ -41,7 +42,7 @@ void japaBackgroundMain() {
         // database; this one just gets a working handle to it, safe to use
         // concurrently with the main isolate's handle.
         isar = await Isar.open(
-          [LocalJapaSessionSchema, DailyJapaTotalSchema],
+          [LocalJapaSessionSchema, DailyJapaTotalSchema, JapaPreferencesSchema],
           directory: dir.path,
         );
         return null;

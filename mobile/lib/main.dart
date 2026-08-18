@@ -16,6 +16,7 @@ import 'src/app.dart';
 import 'src/features/japa/background/japa_background_entrypoint.dart';
 import 'src/features/japa/data/daily_japa_total.dart';
 import 'src/features/japa/data/isar_provider.dart';
+import 'src/features/japa/data/japa_preferences.dart';
 import 'src/features/japa/data/local_japa_session.dart';
 
 Future<void> main() async {
@@ -23,7 +24,7 @@ Future<void> main() async {
 
   final dir = await getApplicationDocumentsDirectory();
   final isar = await Isar.open(
-    [LocalJapaSessionSchema, DailyJapaTotalSchema],
+    [LocalJapaSessionSchema, DailyJapaTotalSchema, JapaPreferencesSchema],
     directory: dir.path,
   );
 

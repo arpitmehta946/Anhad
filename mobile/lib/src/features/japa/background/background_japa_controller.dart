@@ -1,7 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:isar_community/isar.dart';
 
+import '../data/isar_provider.dart';
+import '../data/japa_preferences_store.dart';
 import 'background_japa_channel.dart';
 
 class BackgroundJapaState {
@@ -38,12 +41,21 @@ class BackgroundJapaState {
 /// keeping the notification's live count in sync with every tap recorded
 /// while the session is active.
 class BackgroundJapaController extends StateNotifier<BackgroundJapaState> {
-  BackgroundJapaController(this._channel) : super(const BackgroundJapaState()) {
+  BackgroundJapaController(this._channel, this._isar)
+      : super(const BackgroundJapaState()) {
     _channel.onStateChanged = _onStateChanged;
     _restoreActiveSession();
   }
 
   final BackgroundJapaChannel _channel;
+  final Isar _isar;
+
+  /// Whether the user's standing preference (docs/PRD.md §7.4) is for
+  /// screen-off japa to be on — independent of whether a session actually
+  /// happens to be running right now. Off by default for a new user; set to
+  /// on/off by [start]/[end] respectively, since those are the explicit
+  /// "turn it on"/"turn it off" actions this preference should track.
+  Future<bool> isScreenOffPreferred() => screenOffPreferred(_isar);
 
   /// A fresh app open (or reopen mid-session) always starts with `active:
   /// false` in memory — this reconciles it with reality if the native
@@ -57,6 +69,12 @@ class BackgroundJapaController extends StateNotifier<BackgroundJapaState> {
   }
 
   void _onStateChanged(bool paused, bool ended) {
+    if (ended) {
+      // Ended from the notification's own End button, not the in-app
+      // toggle — still an explicit "turn it off," so the standing
+      // preference needs to follow it the same way [end] does.
+      unawaited(setScreenOffPreferred(_isar, false));
+    }
     if (!mounted) return;
     if (ended) {
       state = const BackgroundJapaState();
@@ -92,6 +110,7 @@ class BackgroundJapaController extends StateNotifier<BackgroundJapaState> {
       count: currentCount,
       cumulativeBase: cumulativeBase,
     );
+    await setScreenOffPreferred(_isar, true);
     if (!mounted) return;
     state = BackgroundJapaState(active: true, totalTaps: currentCount);
   }
@@ -127,6 +146,7 @@ class BackgroundJapaController extends StateNotifier<BackgroundJapaState> {
 
   Future<void> end() async {
     await _channel.end();
+    await setScreenOffPreferred(_isar, false);
     if (!mounted) return;
     state = const BackgroundJapaState();
   }
@@ -159,5 +179,8 @@ final backgroundJapaChannelProvider =
 
 final backgroundJapaControllerProvider = StateNotifierProvider<
     BackgroundJapaController, BackgroundJapaState>(
-  (ref) => BackgroundJapaController(ref.watch(backgroundJapaChannelProvider)),
+  (ref) => BackgroundJapaController(
+    ref.watch(backgroundJapaChannelProvider),
+    ref.watch(isarProvider),
+  ),
 );

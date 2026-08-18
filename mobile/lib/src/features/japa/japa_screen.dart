@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -23,6 +24,11 @@ class _JapaScreenState extends ConsumerState<JapaScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _pulseController;
   late final Animation<double> _pulseAnimation;
+
+  /// Guards [_autoStartIfPreferred] so it fires at most once per screen
+  /// instance, the moment a session id becomes available — not on every
+  /// rebuild after that.
+  bool _autoStartChecked = false;
 
   @override
   void initState() {
@@ -138,12 +144,34 @@ class _JapaScreenState extends ConsumerState<JapaScreen>
     );
   }
 
+  /// The screen-off preference (docs/PRD.md §7.4) is meant to stick: once a
+  /// user turns it on, every future app open should engage it automatically
+  /// rather than making them flip the toggle again each time. This runs
+  /// through the same permission/battery-exemption flow as a manual toggle
+  /// so it's held to the same standard, not a silent bypass of it.
+  Future<void> _autoStartIfPreferred() async {
+    if (ref.read(backgroundJapaControllerProvider).active) return;
+    final controller = ref.read(backgroundJapaControllerProvider.notifier);
+    final preferred = await controller.isScreenOffPreferred();
+    if (!preferred || !mounted) return;
+    // Re-check after the await: a notification-driven state change or the
+    // user's own tap could have already started (or ended) a session while
+    // this was in flight.
+    if (ref.read(backgroundJapaControllerProvider).active) return;
+    await _toggleScreenOffSession(true);
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(japaSessionControllerProvider);
     final backgroundState = ref.watch(backgroundJapaControllerProvider);
     final reduceMotion = MediaQuery.of(context).disableAnimations;
     final theme = Theme.of(context);
+
+    if (!_autoStartChecked && state.sessionId != null) {
+      _autoStartChecked = true;
+      unawaited(_autoStartIfPreferred());
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -211,20 +239,31 @@ class _JapaScreenState extends ConsumerState<JapaScreen>
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            // Today's cumulative count is what a user
+                            // actually cares about day to day — the current
+                            // round resetting on a fresh screen visit
+                            // (japa_session_controller.dart) is technically
+                            // correct but reads as lost progress if it's the
+                            // prominent number. The Mala Ring itself stays
+                            // the dominant visual either way (§10) — this
+                            // only reorders the supporting text beneath it.
                             Text(
-                              '${state.tapsInRound} / $malaSize',
-                              style: theme.textTheme.titleMedium,
-                            ),
-                            if (state.roundsCompleted > 0) ...[
-                              const SizedBox(height: 4),
-                              Text(
-                                'Round ${state.roundsCompleted + 1}',
-                                style: theme.textTheme.bodySmall,
+                              '${state.dailyTotal}',
+                              style: theme.textTheme.headlineMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: AnhadColors.accentDiya,
                               ),
-                            ],
-                            const SizedBox(height: 4),
+                            ),
                             Text(
-                              'Today: ${state.dailyTotal}',
+                              'chants today',
+                              style: theme.textTheme.bodySmall,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              state.roundsCompleted > 0
+                                  ? '${state.tapsInRound} / $malaSize'
+                                      ' · Round ${state.roundsCompleted + 1}'
+                                  : '${state.tapsInRound} / $malaSize',
                               style: theme.textTheme.bodySmall,
                             ),
                             const SizedBox(height: 12),
