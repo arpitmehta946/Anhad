@@ -47,8 +47,11 @@ docker-compose.yml Local Postgres 16 + Redis 7
 docs/              Planning docs (see table above)
 ```
 
-This is currently a **Phase 0 skeleton** per `docs/IMPLEMENTATION_PLAN.md` —
-app shells and local infra exist; no product features are built yet.
+This is currently mid-**Phase 1** per `docs/IMPLEMENTATION_PLAN.md` — phone-OTP
+auth and the japa tap counter (screen-off capture, offline-first sync, streak
+tracking with the §10.3 Seva Pass trial grant) are built and exercised
+end-to-end. Reel upload, the feed, the seeded audio library, and moderation
+v0 — the rest of Phase 1's exit criteria — are not built yet.
 
 ## Tech stack at a glance
 
