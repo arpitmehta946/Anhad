@@ -10,19 +10,25 @@ String todayLocalDate() {
   return '$y-$m-$d';
 }
 
-/// Gets (creating if needed) today's running-total row. Always re-reads by
-/// today's date rather than caching it, so a call right after a midnight
-/// rollover picks up the fresh row instead of yesterday's.
-Future<DailyJapaTotal> todayTotalRow(Isar isar) async {
+/// Gets (creating if needed) today's running-total row. The check-then-create
+/// happens inside a single write transaction — Isar serializes write
+/// transactions against each other, even across isolates sharing the same
+/// instance, so two isolates calling this around the same moment can't both
+/// see "no row yet" and each create their own duplicate row for today.
+Future<DailyJapaTotal> todayTotalRow(Isar isar) {
   final today = todayLocalDate();
-  final existing =
-      await isar.dailyJapaTotals.filter().localDateEqualTo(today).findFirst();
-  if (existing != null) return existing;
-  final fresh = DailyJapaTotal()
-    ..localDate = today
-    ..totalTaps = 0;
-  await isar.writeTxn(() => isar.dailyJapaTotals.put(fresh));
-  return fresh;
+  return isar.writeTxn(() async {
+    final existing = await isar.dailyJapaTotals
+        .filter()
+        .localDateEqualTo(today)
+        .findFirst();
+    if (existing != null) return existing;
+    final fresh = DailyJapaTotal()
+      ..localDate = today
+      ..totalTaps = 0;
+    await isar.dailyJapaTotals.put(fresh);
+    return fresh;
+  });
 }
 
 /// Adjusts today's running total by [delta] — positive for a new tap,
@@ -30,10 +36,30 @@ Future<DailyJapaTotal> todayTotalRow(Isar isar) async {
 /// Shared between the foreground JapaSessionController and the headless
 /// background isolate a screen-off session runs in, so a tap counts the
 /// same way regardless of which one recorded it.
+///
+/// The read (current total) and the write (updated total) happen inside a
+/// single write transaction rather than as two separate steps. Two calls
+/// racing — e.g. rapid volume-key presses arriving faster than one
+/// read-modify-write cycle completes, from the same isolate or different
+/// ones — would otherwise both read the same starting value, and the
+/// second write silently clobbers the first increment: an undercount, not
+/// a crash, which is exactly what made it easy to miss until totals were
+/// checked against the server's own sum. Isar serializes write
+/// transactions against each other, so doing the whole read-modify-write
+/// as one transaction makes each adjustment atomic regardless of timing.
 Future<void> adjustDailyTotal(Isar isar, int delta) async {
   if (delta == 0) return;
-  final row = await todayTotalRow(isar);
-  final updated = row.totalTaps + delta;
-  row.totalTaps = updated < 0 ? 0 : updated;
-  await isar.writeTxn(() => isar.dailyJapaTotals.put(row));
+  final today = todayLocalDate();
+  await isar.writeTxn(() async {
+    var row = await isar.dailyJapaTotals
+        .filter()
+        .localDateEqualTo(today)
+        .findFirst();
+    row ??= DailyJapaTotal()
+      ..localDate = today
+      ..totalTaps = 0;
+    final updated = row.totalTaps + delta;
+    row.totalTaps = updated < 0 ? 0 : updated;
+    await isar.dailyJapaTotals.put(row);
+  });
 }
