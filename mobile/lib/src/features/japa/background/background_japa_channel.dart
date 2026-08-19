@@ -1,5 +1,17 @@
 import 'package:flutter/services.dart';
 
+/// The two tiers of completion sound (docs/ONBOARDING.md §5 item 1) — a
+/// round is every 108 beads, a target is the user's chosen mala length
+/// (27/54/108/1008). They coincide at malaLength == 108 ("one strike," see
+/// [JapaCompletionKind.target]'s priority in the native completionKind
+/// check), and round never fires below 108 (malaLength 27/54: target only).
+enum JapaCompletionKind {
+  round,
+  target;
+
+  String get wireValue => name;
+}
+
 /// What the native service is currently targeting, restored on app open —
 /// see [BackgroundJapaChannel.getActiveSessionId].
 class ActiveSessionInfo {
@@ -46,10 +58,16 @@ class BackgroundJapaChannel {
     required int sessionId,
     required int count,
     required int cumulativeBase,
+    required int malaLength,
   }) =>
       _channel.invokeMethod(
         'startSession',
-        {'sessionId': sessionId, 'count': count, 'cumulativeBase': cumulativeBase},
+        {
+          'sessionId': sessionId,
+          'count': count,
+          'cumulativeBase': cumulativeBase,
+          'malaLength': malaLength,
+        },
       );
 
   /// What the native service is currently targeting, or null if no
@@ -78,14 +96,39 @@ class BackgroundJapaChannel {
         {'sessionId': sessionId, 'cumulativeBase': cumulativeBase},
       );
 
+  /// Pushes a mala-length change immediately rather than waiting for the
+  /// next [updateCount] call — without this, a screen-off session driven
+  /// purely by volume-key taps (which never go through updateCount) could
+  /// keep checking completion boundaries against the length that was
+  /// active when the session started, well after the user switched it.
+  Future<void> updateMalaLength(int malaLength) =>
+      _channel.invokeMethod('updateMalaLength', {'malaLength': malaLength});
+
   Future<void> pause() => _channel.invokeMethod('pause');
 
   Future<void> resume() => _channel.invokeMethod('resume');
 
   Future<void> end() => _channel.invokeMethod('end');
 
-  Future<void> updateCount(int count) =>
-      _channel.invokeMethod('updateCount', {'count': count});
+  Future<void> updateCount(int count, int malaLength) => _channel.invokeMethod(
+        'updateCount',
+        {'count': count, 'malaLength': malaLength},
+      );
+
+  /// Plays a completion sound directly — only meaningful (and only ever
+  /// called) when no screen-off session is active, since
+  /// JapaForegroundService already owns completion sounds for every tap
+  /// source once one is running (docs/ONBOARDING.md §5 item 1).
+  Future<void> playCompletionSound(JapaCompletionKind kind) =>
+      _channel.invokeMethod('playCompletionSound', {'kind': kind.wireValue});
+
+  /// True at most once ever — whether to show the one-time "sound is
+  /// headphone-only" message. Consuming this also marks it shown natively,
+  /// so callers don't need to report back; just show it if true.
+  Future<bool> shouldShowHeadphoneHint() async {
+    final result = await _channel.invokeMethod<bool>('shouldShowHeadphoneHint');
+    return result ?? false;
+  }
 
   Future<bool> isIgnoringBatteryOptimizations() async {
     final result =

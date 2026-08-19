@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../theme/colors.dart';
 import 'background/background_japa_controller.dart';
+import 'data/japa_preferences_store.dart';
 import 'japa_session_controller.dart';
 import 'japa_streak_controller.dart';
 import 'mala_ring_painter.dart';
@@ -31,6 +32,14 @@ class _JapaScreenState extends ConsumerState<JapaScreen>
   /// rebuild after that.
   bool _autoStartChecked = false;
 
+  /// Whether to show the one-time headphone-privacy banner this screen
+  /// visit. Set true only if the native side confirms this has never been
+  /// shown before (docs/FRONTEND_GUIDELINES.md §9) — an inline, dismissible
+  /// banner rather than a modal: this is informational, not a decision the
+  /// user has to make before continuing, and a modal for that trains
+  /// people to reflexively dismiss everything.
+  bool _showHeadphoneHint = false;
+
   @override
   void initState() {
     super.initState();
@@ -53,7 +62,26 @@ class _JapaScreenState extends ConsumerState<JapaScreen>
             Tween(begin: 1.03, end: 1.0).chain(CurveTween(curve: Curves.easeInOut)),
       ),
     ]).animate(_pulseController);
+
+    // Checked once per screen open, independent of session state — the
+    // suppression that sets this pending could have happened during any
+    // earlier screen-off session, not necessarily this one.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkHeadphoneHint());
   }
+
+  Future<void> _checkHeadphoneHint() async {
+    // Already marked shown, natively, the moment this returns true — a
+    // screen-off-triggered suppression surfaces here on next open the same
+    // way, with no separate notification (FRONTEND_GUIDELINES.md §8 keeps
+    // notifications minimal).
+    final shouldShow = await ref
+        .read(backgroundJapaControllerProvider.notifier)
+        .shouldShowHeadphoneHint();
+    if (!mounted || !shouldShow) return;
+    setState(() => _showHeadphoneHint = true);
+  }
+
+  void _dismissHeadphoneHint() => setState(() => _showHeadphoneHint = false);
 
   @override
   void dispose() {
@@ -133,15 +161,25 @@ class _JapaScreenState extends ConsumerState<JapaScreen>
     final japaState = ref.read(japaSessionControllerProvider);
     final sessionId = japaState.sessionId;
     if (sessionId == null) return;
-    // The Isar session's true cumulative count, not tapsInRound alone —
-    // that resets every 108 for the ring's display, but the notification
-    // (and the session it's now sharing) should show the real total.
-    final currentCount =
-        japaState.roundsCompleted * malaSize + japaState.tapsInRound;
     await controller.start(
       sessionId: sessionId,
-      currentCount: currentCount,
+      currentCount: japaSessionController.cumulativeTotal,
       cumulativeBase: japaSessionController.cumulativeBase,
+      malaLength: japaState.malaLength,
+    );
+  }
+
+  /// Corrects an accidental tap. Silent on success (the ring/count/
+  /// notification visibly drop by one, which is confirmation enough) —
+  /// only speaks up when there was nothing to undo, since a toast on every
+  /// successful undo would be noise for the exact moment a user is trying
+  /// to fix a mistake quickly.
+  Future<void> _undoLastTap() async {
+    final undone =
+        await ref.read(japaSessionControllerProvider.notifier).undoLastTap();
+    if (!mounted || undone) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Nothing to undo')),
     );
   }
 
@@ -179,6 +217,11 @@ class _JapaScreenState extends ConsumerState<JapaScreen>
       appBar: AppBar(
         title: const Text('Japa'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.undo),
+            tooltip: 'Undo last tap',
+            onPressed: _undoLastTap,
+          ),
           Row(
             children: [
               const Text('Screen-off japa', style: TextStyle(fontSize: 12)),
@@ -209,6 +252,8 @@ class _JapaScreenState extends ConsumerState<JapaScreen>
                   ).clamp(180.0, 380.0);
                   return Column(
                     children: [
+                      if (_showHeadphoneHint)
+                        _HeadphoneHintBanner(onDismiss: _dismissHeadphoneHint),
                       Expanded(
                         child: Center(
                           child: AnimatedBuilder(
@@ -217,7 +262,7 @@ class _JapaScreenState extends ConsumerState<JapaScreen>
                               return CustomPaint(
                                 size: Size.square(ringSize),
                                 painter: MalaRingPainter(
-                                  totalBeads: malaSize,
+                                  totalBeads: state.malaLength,
                                   filledCount: state.tapsInRound,
                                   pulseBeadIndex: state.justFilledBeadIndex,
                                   pulseScale: reduceMotion
@@ -260,13 +305,41 @@ class _JapaScreenState extends ConsumerState<JapaScreen>
                               'chants today',
                               style: theme.textTheme.bodySmall,
                             ),
+                            if (streak != null && streak.lifetimeTotal > 0) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                '${streak.lifetimeTotal} lifetime',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.onSurface
+                                      .withValues(alpha: 0.6),
+                                ),
+                              ),
+                            ],
                             const SizedBox(height: 8),
                             Text(
                               state.roundsCompleted > 0
-                                  ? '${state.tapsInRound} / $malaSize'
+                                  ? '${state.tapsInRound} / ${state.malaLength}'
                                       ' · Round ${state.roundsCompleted + 1}'
-                                  : '${state.tapsInRound} / $malaSize',
+                                  : '${state.tapsInRound} / ${state.malaLength}',
                               style: theme.textTheme.bodySmall,
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              alignment: WrapAlignment.center,
+                              spacing: 8,
+                              children: [
+                                for (final length in malaLengthOptions)
+                                  _MalaLengthOption(
+                                    length: length,
+                                    selected: state.malaLength == length,
+                                    onSelected: () => ref
+                                        .read(
+                                          japaSessionControllerProvider
+                                              .notifier,
+                                        )
+                                        .setMalaLength(length),
+                                  ),
+                              ],
                             ),
                             // Shown only once there's a streak to report —
                             // silence rather than "no streak yet" for a new
@@ -332,6 +405,105 @@ class _JapaScreenState extends ConsumerState<JapaScreen>
           ),
         ),
       ),
+    );
+  }
+}
+
+/// The one-time headphone-privacy notice (docs/ONBOARDING.md §5 item 1) —
+/// an inline, dismissible banner, not a modal: nothing here needs a
+/// decision before the user can continue chanting. Benefit-led copy
+/// ("your bell stays private") rather than feature-led ("the sound only
+/// plays through headphones"), per the same research FRONTEND_GUIDELINES.md
+/// §9 draws on for plain, person-facing language.
+class _HeadphoneHintBanner extends StatelessWidget {
+  const _HeadphoneHintBanner({required this.onDismiss});
+
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: const BoxDecoration(
+        color: AnhadColors.duskBgSurface,
+        // The soft-arched-top-edge chrome motif (FRONTEND_GUIDELINES.md
+        // §4), scaled down to a single asymmetric corner for a banner this
+        // small rather than a full arch.
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(16),
+          topRight: Radius.circular(16),
+          bottomLeft: Radius.circular(16),
+          bottomRight: Radius.circular(4),
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.headphones, color: AnhadColors.accentDiya, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Your bell stays private — it plays through headphones only, '
+              'never the speaker.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AnhadColors.duskTextPrimary,
+                  ),
+            ),
+          ),
+          const SizedBox(width: 4),
+          TextButton(
+            onPressed: onDismiss,
+            style: TextButton.styleFrom(
+              foregroundColor: AnhadColors.accentDiya,
+              minimumSize: Size.zero,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text('Got it'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One choice in the mala-length row (docs/ONBOARDING.md §1.3). A plain
+/// labeled toggle rather than a Material ChoiceChip, so it matches the
+/// app's existing OutlinedButton/FilledButton vocabulary instead of
+/// introducing a different chip aesthetic for one control.
+class _MalaLengthOption extends StatelessWidget {
+  const _MalaLengthOption({
+    required this.length,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final int length;
+  final bool selected;
+  final VoidCallback onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = Text('$length');
+    return SizedBox(
+      height: 32,
+      child: selected
+          ? FilledButton(
+              onPressed: onSelected,
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                minimumSize: Size.zero,
+              ),
+              child: label,
+            )
+          : OutlinedButton(
+              onPressed: onSelected,
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                minimumSize: Size.zero,
+              ),
+              child: label,
+            ),
     );
   }
 }

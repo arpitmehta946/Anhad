@@ -6,24 +6,30 @@ import 'package:isar_community/isar.dart';
 
 import '../../config.dart';
 import '../auth/auth_controller.dart';
-import 'background/background_japa_channel.dart' show ActiveSessionInfo;
+import 'background/background_japa_channel.dart'
+    show ActiveSessionInfo, JapaCompletionKind;
 import 'background/background_japa_controller.dart';
 import 'data/daily_japa_total.dart';
 import 'data/daily_total_store.dart';
 import 'data/isar_provider.dart';
 import 'data/japa_api_client.dart';
 import 'data/japa_sync_service.dart';
+import 'data/japa_preferences_store.dart';
 import 'data/local_japa_session.dart';
 import 'data/tap_recorder.dart';
 import 'japa_streak_controller.dart';
 
-/// One full mala (docs/FRONTEND_GUIDELINES.md §5).
+/// The traditional default mala length (docs/FRONTEND_GUIDELINES.md §5) —
+/// used before the persisted preference has loaded, and as the fallback if
+/// none is set. The actual active length is [JapaSessionState.malaLength],
+/// which is per-user (docs/ONBOARDING.md §1.3: 27/54/108/1008).
 const malaSize = 108;
 
 class JapaSessionState {
   const JapaSessionState({
     this.tapsInRound = 0,
     this.roundsCompleted = 0,
+    this.malaLength = malaSize,
     this.justFilledBeadIndex,
     this.syncFailed = false,
     this.dailyTotal = 0,
@@ -35,6 +41,13 @@ class JapaSessionState {
 
   /// Full malas completed so far this screen visit.
   final int roundsCompleted;
+
+  /// Beads per round — the user's persisted preference (docs/ONBOARDING.md
+  /// §1.3: 27/54/108/1008), not a fixed constant. Changing it recomputes
+  /// [tapsInRound]/[roundsCompleted] from the same cumulative tap total
+  /// against the new length — no taps are added, lost, or reassigned, but
+  /// the round-boundary display does jump to reflect the new chunking.
+  final int malaLength;
 
   /// Index of the bead that should play the pulse animation right now.
   final int? justFilledBeadIndex;
@@ -58,6 +71,7 @@ class JapaSessionState {
   JapaSessionState copyWith({
     int? tapsInRound,
     int? roundsCompleted,
+    int? malaLength,
     int? justFilledBeadIndex,
     bool clearJustFilledBeadIndex = false,
     bool? syncFailed,
@@ -67,6 +81,7 @@ class JapaSessionState {
     return JapaSessionState(
       tapsInRound: tapsInRound ?? this.tapsInRound,
       roundsCompleted: roundsCompleted ?? this.roundsCompleted,
+      malaLength: malaLength ?? this.malaLength,
       justFilledBeadIndex: clearJustFilledBeadIndex
           ? null
           : (justFilledBeadIndex ?? this.justFilledBeadIndex),
@@ -80,6 +95,24 @@ class JapaSessionState {
 DateTime _nextLocalMidnight() {
   final now = DateTime.now();
   return DateTime(now.year, now.month, now.day).add(const Duration(days: 1));
+}
+
+/// Mirrors JapaBellPlayer.completionKind on the native side exactly — see
+/// its doc for the full reasoning. Kept in sync deliberately rather than
+/// shared, since one runs in the Dart isolate (no screen-off session) and
+/// the other natively (screen-off session active); duplicating a few lines
+/// of pure logic is simpler than threading a shared implementation across
+/// that boundary.
+JapaCompletionKind? _completionKind(int oldCount, int newCount, int malaLength) {
+  if (newCount <= oldCount || malaLength <= 0) return null;
+  final ringLength = malaLength < malaSize ? malaLength : malaSize;
+  if (newCount ~/ malaLength > oldCount ~/ malaLength) {
+    return JapaCompletionKind.target;
+  }
+  if (newCount ~/ ringLength > oldCount ~/ ringLength) {
+    return JapaCompletionKind.round;
+  }
+  return null;
 }
 
 /// Drives one screen visit's worth of japa taps: persists every tap to Isar
@@ -105,8 +138,10 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
     this._sync, {
     this.getActiveSessionId,
     this.updateActiveSessionId,
+    this.updateMalaLength,
     this.updateNotificationCount,
     this.onSynced,
+    this.onCompletion,
     Stream<List<ConnectivityResult>>? connectivityChanges,
   })  : _connectivityChanges =
             connectivityChanges ?? Connectivity().onConnectivityChanged,
@@ -140,12 +175,16 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
   /// already rotated past before the restart.
   final void Function(int newSessionId, int cumulativeBase)? updateActiveSessionId;
 
+  /// Pushes a mala-length change to the native service immediately —
+  /// called from [setMalaLength]; see [BackgroundJapaController.updateMalaLength].
+  final void Function(int malaLength)? updateMalaLength;
+
   /// Pushes this screen visit's true cumulative tap count to the
   /// notification — called every time the session watcher recomputes
   /// ring/round state, from whichever tap source triggered it. A no-op
   /// (via BackgroundJapaController's own guard) when no screen-off session
   /// is running.
-  final void Function(int total)? updateNotificationCount;
+  final void Function(int total, int malaLength)? updateNotificationCount;
 
   /// Called whenever a batch actually reaches the server — a mala
   /// completion, connectivity restored, or a backlog flushed at startup —
@@ -157,7 +196,34 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
   /// and then never looked again for the rest of the visit.
   final void Function()? onSynced;
 
+  /// Fired on a *live* crossing of a round or target boundary (never on
+  /// init/resume/a mala-length switch re-chunking the same total — see the
+  /// triggerFlushOnCompletion gate in [_applyTapTotal]) — docs/ONBOARDING.md
+  /// §5 item 1. The provider wiring is what decides whether this actually
+  /// plays a sound directly or is a no-op: JapaForegroundService already
+  /// owns completion sounds for every tap source once a screen-off session
+  /// is active, so playing it again here too would double it up.
+  final void Function(JapaCompletionKind kind)? onCompletion;
+
   int? _sessionId;
+
+  /// The active mala length (docs/ONBOARDING.md §1.3) — loaded from the
+  /// persisted preference in [_init], changeable via [setMalaLength].
+  /// Deliberately not part of [_cumulativeBase]'s math: it only changes how
+  /// the same cumulative total is chunked into rounds, via [_applyTapTotal].
+  int _malaLength = malaSize;
+
+  /// The current row's own tap count as of the last [_applyTapTotal] call —
+  /// cached so [setMalaLength] can immediately re-chunk the display against
+  /// the new length without waiting for the next tap to trigger a fresh
+  /// watcher notification.
+  int _lastRowTotal = 0;
+
+  /// The cumulative total as of the last [_applyTapTotal] call — compared
+  /// against the new cumulative each time to detect a completion boundary
+  /// crossing (rather than cumulative % x == 0, which a multi-tap jump
+  /// between two calls could step past without ever landing exactly on).
+  int _lastCumulative = 0;
 
   /// Taps from every row this screen visit has already rotated past (mala
   /// completions, connectivity-triggered flushes) — added to the current
@@ -174,6 +240,16 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
   /// can hand the native service this exact value to persist, matching
   /// whatever this controller currently has — see [_cumulativeBase].
   int get cumulativeBase => _cumulativeBase;
+
+  /// The true cumulative total for this screen visit — [_cumulativeBase]
+  /// plus the current row's own tap count. Distinct from the ring's
+  /// roundsCompleted/tapsInRound, which chunk this same total by the ring
+  /// length (108, or the mala length itself if shorter — see
+  /// [_applyTapTotal]), not the mala length directly: reconstructing this
+  /// value from roundsCompleted/tapsInRound would need to know the ring
+  /// length too, so callers that need the real total (starting a
+  /// screen-off session's notification baseline) should read this instead.
+  int get cumulativeTotal => _cumulativeBase + _lastRowTotal;
 
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
   StreamSubscription<LocalJapaSession?>? _sessionWatchSub;
@@ -196,6 +272,10 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
   }
 
   Future<void> _init() async {
+    _malaLength = await malaLengthPreferred(_isar);
+    if (!mounted) return;
+    state = state.copyWith(malaLength: _malaLength);
+
     // Adopt whatever the native service is already targeting (a screen-off
     // session started before this screen was opened, or still running from
     // before the app was last closed) rather than always creating a fresh
@@ -240,29 +320,48 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
 
   /// Recomputes ring/round state — and pushes the notification's count —
   /// from the current row's tap total plus everything already rotated past
-  /// this visit. Used at init (no flush — a resumed session may already be
-  /// mid- or past-completion and shouldn't re-trigger a flush just for
-  /// being loaded) and by the session watcher (does flush — a live crossing
-  /// of a mala boundary, from either tap source, is the real completion
-  /// event).
+  /// this visit. Used at init (no flush, no completion sound — a resumed
+  /// session may already be mid- or past-completion and shouldn't replay
+  /// either just for being loaded) and by the session watcher (does both —
+  /// a live crossing of a boundary, from either tap source, is the real
+  /// completion event).
+  ///
+  /// The ring itself always cycles every [_ringLength] beads (108, or the
+  /// mala length itself if that's shorter) rather than the raw mala length
+  /// — a 1008-length "target" is traditionally counted as repeated malas,
+  /// not one ring of 1008 beads (docs/ONBOARDING.md §5), and this is also
+  /// what keeps a natural sync checkpoint every 108 taps for a long
+  /// session instead of one large batch built up over 1008.
   void _applyTapTotal(int rowTotal, {required bool triggerFlushOnCompletion}) {
+    _lastRowTotal = rowTotal;
     final cumulative = _cumulativeBase + rowTotal;
-    final rounds = cumulative ~/ malaSize;
-    final inRound = cumulative % malaSize;
+    final ringLength = _ringLength;
+    final rounds = cumulative ~/ ringLength;
+    final inRound = cumulative % ringLength;
     final justCompletedRound =
         triggerFlushOnCompletion && inRound == 0 && rowTotal > 0;
     state = state.copyWith(
       tapsInRound: inRound,
       roundsCompleted: rounds,
-      justFilledBeadIndex: inRound == 0 ? malaSize - 1 : inRound - 1,
+      malaLength: _malaLength,
+      justFilledBeadIndex: inRound == 0 ? ringLength - 1 : inRound - 1,
     );
-    updateNotificationCount?.call(cumulative);
+    updateNotificationCount?.call(cumulative, _malaLength);
+    if (triggerFlushOnCompletion) {
+      final kind = _completionKind(_lastCumulative, cumulative, _malaLength);
+      if (kind != null) onCompletion?.call(kind);
+    }
+    _lastCumulative = cumulative;
     if (justCompletedRound) {
       // A completed mala is a natural checkpoint — sync it now rather than
       // waiting for the user to leave the screen or a connectivity change.
       unawaited(_serialized(_flushCurrentAndRotate));
     }
   }
+
+  /// The ring's own bead count — see [_applyTapTotal]'s doc for why this
+  /// isn't always just [_malaLength].
+  int get _ringLength => _malaLength < malaSize ? _malaLength : malaSize;
 
   void _watchSession(int id) {
     unawaited(_sessionWatchSub?.cancel());
@@ -350,6 +449,29 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
     // or, for a screen-off session, a volume key) produced this tap.
   }
 
+  /// Corrects an accidental tap — see [undoLastTapInIsar] for exactly what
+  /// this can and can't reach. Returns whether anything was actually
+  /// undone, so the caller can tell the difference from "nothing to undo."
+  Future<bool> undoLastTap() async {
+    final sessionId = _sessionId;
+    if (sessionId == null) return false;
+    return undoLastTapInIsar(_isar, sessionId);
+  }
+
+  /// Changes the active mala length (docs/ONBOARDING.md §1.3) and persists
+  /// it as the standing preference. Re-chunks the *same* cumulative total
+  /// against the new length immediately, using the row total cached from
+  /// the last watcher notification rather than waiting for the next tap —
+  /// no taps are added, dropped, or reassigned, but tapsInRound/
+  /// roundsCompleted will jump to reflect the new grouping.
+  Future<void> setMalaLength(int length) async {
+    _malaLength = length;
+    await setMalaLengthPreferred(_isar, length);
+    updateMalaLength?.call(length);
+    if (!mounted) return;
+    _applyTapTotal(_lastRowTotal, triggerFlushOnCompletion: false);
+  }
+
   /// Connectivity just came back while still on-screen: flush what's
   /// queued so far, then start a fresh local buffer for anything new —
   /// rotating (rather than reusing the just-flushed, now-deleted row)
@@ -427,8 +549,10 @@ final japaSessionControllerProvider = StateNotifierProvider.autoDispose<
     sync,
     getActiveSessionId: background.getActiveSessionId,
     updateActiveSessionId: background.updateActiveSessionId,
+    updateMalaLength: background.updateMalaLength,
     updateNotificationCount: background.updateNotificationCount,
     onSynced: () => ref.invalidate(japaStreakProvider),
+    onCompletion: background.playCompletionSound,
   );
   // No ref.onDispose(controller.dispose) here — StateNotifierProvider
   // already disposes the notifier it creates automatically. Registering it

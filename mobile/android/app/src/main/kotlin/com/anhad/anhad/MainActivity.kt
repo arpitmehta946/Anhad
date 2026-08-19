@@ -38,6 +38,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        JapaBellPlayer.preload(this)
 
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
         methodChannel?.setMethodCallHandler { call, result ->
@@ -46,6 +47,7 @@ class MainActivity : FlutterActivity() {
                     val sessionId = call.argument<Int>("sessionId")
                     val count = call.argument<Int>("count") ?: 0
                     val cumulativeBase = call.argument<Int>("cumulativeBase") ?: 0
+                    val malaLength = call.argument<Int>("malaLength") ?: 108
                     // Only the initial start goes through startForegroundService —
                     // it's the one call Android requires a startForeground()
                     // response to within 5s. Everything else below just talks to
@@ -56,6 +58,7 @@ class MainActivity : FlutterActivity() {
                         .setAction(JapaForegroundService.ACTION_START)
                         .putExtra(JapaForegroundService.EXTRA_COUNT, count)
                         .putExtra(JapaForegroundService.EXTRA_CUMULATIVE_BASE, cumulativeBase)
+                        .putExtra(JapaForegroundService.EXTRA_MALA_LENGTH, malaLength)
                     if (sessionId != null) {
                         intent.putExtra(JapaForegroundService.EXTRA_SESSION_ID, sessionId)
                     }
@@ -87,6 +90,14 @@ class MainActivity : FlutterActivity() {
                     }
                     result.success(null)
                 }
+                "updateMalaLength" -> {
+                    val malaLength = call.argument<Int>("malaLength") ?: 108
+                    val intent = Intent(this, JapaForegroundService::class.java)
+                        .setAction(JapaForegroundService.ACTION_UPDATE_MALA_LENGTH)
+                        .putExtra(JapaForegroundService.EXTRA_MALA_LENGTH, malaLength)
+                    startService(intent)
+                    result.success(null)
+                }
                 "pause" -> {
                     startServiceAction(JapaForegroundService.ACTION_PAUSE)
                     result.success(null)
@@ -101,8 +112,31 @@ class MainActivity : FlutterActivity() {
                 }
                 "updateCount" -> {
                     val count = call.argument<Int>("count") ?: 0
-                    startServiceAction(JapaForegroundService.ACTION_UPDATE_COUNT, count)
+                    val malaLength = call.argument<Int>("malaLength") ?: 108
+                    val intent = Intent(this, JapaForegroundService::class.java)
+                        .setAction(JapaForegroundService.ACTION_UPDATE_COUNT)
+                        .putExtra(JapaForegroundService.EXTRA_COUNT, count)
+                        .putExtra(JapaForegroundService.EXTRA_MALA_LENGTH, malaLength)
+                    startService(intent)
                     result.success(null)
+                }
+                "playCompletionSound" -> {
+                    val kind = call.argument<String>("kind")
+                    val completionKind = if (kind == "round") {
+                        JapaBellPlayer.CompletionKind.ROUND
+                    } else {
+                        JapaBellPlayer.CompletionKind.TARGET
+                    }
+                    // Only reached when no screen-off session is active —
+                    // JapaSessionController skips this call otherwise,
+                    // since JapaForegroundService already owns completion
+                    // sounds for every tap source once a session is
+                    // running (see its ACTION_UPDATE_COUNT handler).
+                    JapaBellPlayer.play(this, completionKind)
+                    result.success(null)
+                }
+                "shouldShowHeadphoneHint" -> {
+                    result.success(JapaBellPlayer.consumePendingHeadphoneHint(this))
                 }
                 "isIgnoringBatteryOptimizations" -> {
                     val pm = getSystemService(Context.POWER_SERVICE) as PowerManager

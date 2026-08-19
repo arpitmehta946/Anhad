@@ -14,4 +14,12 @@ class JapaPreferences {
   Id id = 0;
 
   bool screenOffEnabled = false;
+
+  /// Beads per mala round (docs/ONBOARDING.md §1.3) — 27/54/108/1008 are the
+  /// offered lengths, 108 is the traditional default. Purely a client-side
+  /// display/pacing preference: it changes how a round is chunked for the
+  /// ring and the completion bell, never the server's streak-qualification
+  /// threshold (PRD.md §7.4 keeps that at a fixed 108 taps/day regardless of
+  /// what ring length someone prefers to chant in).
+  int malaLength = 108;
 }

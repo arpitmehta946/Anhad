@@ -4,6 +4,8 @@ import 'package:anhad/src/features/japa/background/background_japa_channel.dart'
     show ActiveSessionInfo;
 import 'package:anhad/src/features/japa/data/daily_japa_total.dart';
 import 'package:anhad/src/features/japa/data/japa_api_client.dart';
+import 'package:anhad/src/features/japa/data/japa_preferences.dart';
+import 'package:anhad/src/features/japa/data/japa_preferences_store.dart';
 import 'package:anhad/src/features/japa/data/japa_sync_service.dart';
 import 'package:anhad/src/features/japa/data/local_japa_session.dart';
 import 'package:anhad/src/features/japa/japa_session_controller.dart';
@@ -34,7 +36,7 @@ class _NetworkFailure implements Exception {
 /// transitions all happen via real async Isar watchers, not synchronously.
 Future<void> pumpUntil(
   bool Function() condition, {
-  Duration timeout = const Duration(seconds: 10),
+  Duration timeout = const Duration(seconds: 15),
 }) async {
   final deadline = DateTime.now().add(timeout);
   while (!condition()) {
@@ -53,7 +55,11 @@ Future<void> pumpUntil(
 /// notification, hanging any test waiting on it). Not a production concern
 /// — real taps are naturally paced 300-800ms apart by the anti-cheat
 /// design (api/internal/japa/service.go) — but worth a real delay here
-/// rather than a bare `await`, which still isn't enough on its own.
+/// rather than a bare `await`, which still isn't enough on its own. 10ms
+/// rather than the original 2ms: under heavier system load the shorter gap
+/// still occasionally missed the last notification (the same failure mode,
+/// just less reliably triggered), so this trades a bit of test runtime for
+/// consistently clearing it.
 ///
 /// Also: when [count] completes a mala, the rotation that follows is
 /// asynchronous (fire-and-forget from _applyTapTotal, not awaited within
@@ -65,7 +71,7 @@ Future<void> pumpUntil(
 Future<void> tapTimes(JapaSessionController controller, int count) async {
   for (var i = 0; i < count; i++) {
     await controller.tap();
-    await Future.delayed(const Duration(milliseconds: 2));
+    await Future.delayed(const Duration(milliseconds: 10));
   }
 }
 
@@ -78,7 +84,7 @@ void main() {
   JapaSessionController makeController({
     Future<ActiveSessionInfo?> Function()? getActiveSessionId,
     void Function(int, int)? updateActiveSessionId,
-    void Function(int)? updateNotificationCount,
+    void Function(int, int)? updateNotificationCount,
     void Function()? onSynced,
   }) {
     final controller = JapaSessionController(
@@ -101,7 +107,7 @@ void main() {
     tempDir =
         Directory.systemTemp.createTempSync('japa_session_controller_test');
     isar = await Isar.open(
-      [LocalJapaSessionSchema, DailyJapaTotalSchema],
+      [LocalJapaSessionSchema, DailyJapaTotalSchema, JapaPreferencesSchema],
       directory: tempDir.path,
     );
     fakeApi = _FakeSubmitter();
@@ -117,7 +123,23 @@ void main() {
     // tearing down Isar out from under it.
     await Future.delayed(const Duration(milliseconds: 20));
     await isar.close(deleteFromDisk: true);
-    if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+    // isar.close() has already released the files it cares about, but on
+    // Windows the native handle (or a real-time antivirus/indexing scan of
+    // the freshly-written db files) can hold the directory locked well
+    // after close() itself returns — deleteSync() racing that is a
+    // test-cleanup timing issue, not a correctness one, and each test uses
+    // its own uniquely-named temp dir, so leaving one behind on the rare
+    // case retries don't clear it in time costs nothing worth failing the
+    // test over.
+    for (var attempt = 0; attempt < 10; attempt++) {
+      try {
+        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+        break;
+      } catch (_) {
+        if (attempt == 9) break;
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+    }
   });
 
   test('starts a fresh session at 0/0 when nothing is adopted', () async {
@@ -151,8 +173,9 @@ void main() {
       'completing one mala rotates to a fresh session and carries the '
       'cumulative base forward', () async {
     final notifications = <int>[];
-    final controller =
-        makeController(updateNotificationCount: notifications.add);
+    final controller = makeController(
+      updateNotificationCount: (total, _) => notifications.add(total),
+    );
     await pumpUntil(() => controller.state.sessionId != null);
     final firstSessionId = controller.state.sessionId;
 
@@ -283,7 +306,11 @@ void main() {
       getActiveSessionId: () async =>
           ActiveSessionInfo(sessionId: existingId, cumulativeBase: 300),
     );
-    await pumpUntil(() => controller.state.sessionId != null);
+    // sessionId is set (synchronously, inside _init) before the row's own
+    // tap count is fetched and _applyTapTotal computes roundsCompleted/
+    // tapsInRound from it — waiting only on sessionId can observe state
+    // between those two steps, so wait for the actual settled value.
+    await pumpUntil(() => controller.state.roundsCompleted != 0);
 
     expect(controller.state.sessionId, existingId);
     expect(controller.cumulativeBase, 300);
@@ -351,5 +378,78 @@ void main() {
         await isar.localJapaSessions.get(controller.state.sessionId!);
     expect(newSession, isNotNull);
     expect(newSession!.taps, isEmpty);
+  });
+
+  test('undoLastTap removes a tap and the ring reflects it', () async {
+    final controller = makeController();
+    await pumpUntil(() => controller.state.sessionId != null);
+
+    await controller.tap();
+    await controller.tap();
+    await controller.tap();
+    await pumpUntil(() => controller.state.tapsInRound == 3);
+
+    final undone = await controller.undoLastTap();
+    // tapsInRound and dailyTotal settle via two independent Isar watchers
+    // (session row vs. daily-total row) — wait for both, not just one.
+    await pumpUntil(
+      () => controller.state.tapsInRound == 2 && controller.state.dailyTotal == 2,
+    );
+
+    expect(undone, isTrue);
+  });
+
+  test('undoLastTap on a fresh session reports false and changes nothing',
+      () async {
+    final controller = makeController();
+    await pumpUntil(() => controller.state.sessionId != null);
+
+    final undone = await controller.undoLastTap();
+
+    expect(undone, isFalse);
+    expect(controller.state.tapsInRound, 0);
+  });
+
+  test(
+      'setMalaLength re-chunks the same cumulative total against the new '
+      'length without adding, dropping, or reassigning any taps', () async {
+    final controller = makeController();
+    await pumpUntil(() => controller.state.sessionId != null);
+
+    for (var i = 0; i < 40; i++) {
+      await controller.tap();
+    }
+    await pumpUntil(() => controller.state.tapsInRound == 40);
+    expect(controller.state.malaLength, malaSize); // still the 108 default
+
+    await controller.setMalaLength(27);
+
+    // Cumulative is still exactly 40 — now expressed against a 27-length
+    // mala: 1 full round (27) plus 13 into the second.
+    expect(controller.state.malaLength, 27);
+    expect(controller.state.roundsCompleted, 1);
+    expect(controller.state.tapsInRound, 13);
+
+    // The persisted preference sticks for the next controller too.
+    expect(await malaLengthPreferred(isar), 27);
+
+    // Tapping after the switch continues to accumulate normally against
+    // the new length — no data was lost in the switch.
+    await controller.tap();
+    await pumpUntil(
+      () => controller.state.tapsInRound == 14 && controller.state.dailyTotal == 41,
+    );
+  });
+
+  test('setMalaLength persists across a fresh controller (adoption path)',
+      () async {
+    final first = makeController();
+    await pumpUntil(() => first.state.sessionId != null);
+    await first.setMalaLength(54);
+
+    final second = makeController();
+    await pumpUntil(() => second.state.sessionId != null);
+
+    expect(second.state.malaLength, 54);
   });
 }

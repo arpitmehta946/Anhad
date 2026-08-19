@@ -56,6 +56,7 @@ func TestStreakIntegration(t *testing.T) {
 	// A base date far enough in the past that "today" in nextStreak's
 	// day-21 reward check can never collide with real activity.
 	base := time.Date(2020, 1, 1, 12, 0, 0, 0, time.UTC)
+	wantLifetimeTotal := 0
 	seedDay := func(offset int, taps int) {
 		day := base.AddDate(0, 0, offset)
 		_, err := st.PG.Exec(ctx, `
@@ -65,6 +66,7 @@ func TestStreakIntegration(t *testing.T) {
 		if err != nil {
 			t.Fatalf("seed day %d: %v", offset, err)
 		}
+		wantLifetimeTotal += taps
 		if err := svc.UpdateStreakForDate(ctx, userID, day); err != nil {
 			t.Fatalf("update streak for day %d: %v", offset, err)
 		}
@@ -158,5 +160,14 @@ func TestStreakIntegration(t *testing.T) {
 	}
 	if subCount != 1 {
 		t.Errorf("continuing past day 21 must not grant a second trial, got %d subscription rows", subCount)
+	}
+
+	lifetimeTotal, err := svc.LifetimeTotal(ctx, userID)
+	if err != nil {
+		t.Fatalf("LifetimeTotal() error = %v", err)
+	}
+	if lifetimeTotal != wantLifetimeTotal {
+		t.Errorf("LifetimeTotal() = %d, want %d (sum of every seeded day, including the "+
+			"below-threshold day 1 that never qualified for the streak)", lifetimeTotal, wantLifetimeTotal)
 	}
 }

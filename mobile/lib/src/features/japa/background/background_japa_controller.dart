@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:isar_community/isar.dart';
 
@@ -104,11 +105,13 @@ class BackgroundJapaController extends StateNotifier<BackgroundJapaState> {
     required int sessionId,
     required int currentCount,
     required int cumulativeBase,
+    required int malaLength,
   }) async {
     await _channel.startSession(
       sessionId: sessionId,
       count: currentCount,
       cumulativeBase: cumulativeBase,
+      malaLength: malaLength,
     );
     await setScreenOffPreferred(_isar, true);
     if (!mounted) return;
@@ -130,6 +133,14 @@ class BackgroundJapaController extends StateNotifier<BackgroundJapaState> {
   void updateActiveSessionId(int newSessionId, int cumulativeBase) {
     if (!state.active) return;
     unawaited(_channel.updateSessionId(newSessionId, cumulativeBase));
+  }
+
+  /// Pushes a mala-length change to the native service immediately — a
+  /// no-op when no screen-off session is running, so callers don't need to
+  /// check first. See [BackgroundJapaChannel.updateMalaLength].
+  void updateMalaLength(int malaLength) {
+    if (!state.active) return;
+    unawaited(_channel.updateMalaLength(malaLength));
   }
 
   Future<void> pause() async {
@@ -167,11 +178,25 @@ class BackgroundJapaController extends StateNotifier<BackgroundJapaState> {
   /// without this counter ever finding out, so the next on-screen tap
   /// would push its own now-stale value and clobber whatever the
   /// notification actually showed.
-  void updateNotificationCount(int total) {
+  void updateNotificationCount(int total, int malaLength) {
     if (!state.active) return;
     state = state.copyWith(totalTaps: total);
-    unawaited(_channel.updateCount(total));
+    unawaited(_channel.updateCount(total, malaLength));
   }
+
+  /// Plays a completion sound (and its distinct haptic) directly from the
+  /// foreground — a no-op (deliberately) while a screen-off session is
+  /// active, since JapaForegroundService already owns both for every tap
+  /// source in that case; see [_channel]'s playCompletionSound doc. The
+  /// haptic fires unconditionally alongside the sound request — it has no
+  /// privacy concern the way audio does, so it isn't gated on headphones.
+  void playCompletionSound(JapaCompletionKind kind) {
+    if (state.active) return;
+    HapticFeedback.heavyImpact();
+    unawaited(_channel.playCompletionSound(kind));
+  }
+
+  Future<bool> shouldShowHeadphoneHint() => _channel.shouldShowHeadphoneHint();
 }
 
 final backgroundJapaChannelProvider =

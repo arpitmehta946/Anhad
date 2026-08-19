@@ -57,9 +57,11 @@ class JapaForegroundService : Service() {
         const val ACTION_END = "com.anhad.anhad.japa.END"
         const val ACTION_UPDATE_COUNT = "com.anhad.anhad.japa.UPDATE_COUNT"
         const val ACTION_UPDATE_SESSION_ID = "com.anhad.anhad.japa.UPDATE_SESSION_ID"
+        const val ACTION_UPDATE_MALA_LENGTH = "com.anhad.anhad.japa.UPDATE_MALA_LENGTH"
         const val EXTRA_COUNT = "count"
         const val EXTRA_SESSION_ID = "session_id"
         const val EXTRA_CUMULATIVE_BASE = "cumulative_base"
+        const val EXTRA_MALA_LENGTH = "mala_length"
 
         // Persists which Isar session id is currently being targeted, so
         // MainActivity can answer "is a screen-off session running, and
@@ -79,6 +81,15 @@ class JapaForegroundService : Service() {
         // row alone, silently dropping everything from rows already
         // rotated past before the restart.
         const val PREF_CUMULATIVE_BASE = "cumulative_base"
+
+        // Beads per mala round (docs/ONBOARDING.md §1.3, §5) — needed here
+        // so the completion-bell logic (JapaBellPlayer.completionKind) can
+        // tell a round boundary from the session's actual target
+        // regardless of which input source produced the tap, without
+        // waiting on the main Dart isolate to say so. Kept alongside the
+        // other session prefs for the same restart-durability reason as
+        // PREF_CUMULATIVE_BASE.
+        const val PREF_MALA_LENGTH = "mala_length"
 
         private const val BACKGROUND_ISOLATE_CHANNEL = "com.anhad.anhad/japa_background_isolate"
         private const val BACKGROUND_ENTRYPOINT_LIBRARY =
@@ -103,6 +114,15 @@ class JapaForegroundService : Service() {
         // HapticFeedback.lightImpact() (japa_screen.dart) in weight.
         private const val TAP_VIBRATION_MS = 30L
 
+        // Distinctly longer than a per-tap tick — this is the "a mala
+        // completed" confirmation (docs/ONBOARDING.md §5 item 1), meant to
+        // be felt as a different, more deliberate pulse than the steady
+        // stream of per-tap ticks, not just another one of them. Fires
+        // unconditionally alongside JapaBellPlayer.play() regardless of
+        // whether the sound itself was suppressed (no headphones) — haptic
+        // has no privacy concern, so it isn't gated the way sound is.
+        private const val COMPLETION_VIBRATION_MS = 90L
+
         // How often to re-assert the MediaSession as active while a
         // session is running. There's no public API to observe "did
         // Android just hand volume-key routing to something else" (a
@@ -118,6 +138,7 @@ class JapaForegroundService : Service() {
     }
 
     private var tapCount = 0
+    private var malaLength = 108
     private var paused = false
     private var mediaSession: MediaSessionCompat? = null
     private var backgroundEngine: FlutterEngine? = null
@@ -138,10 +159,12 @@ class JapaForegroundService : Service() {
         when (intent?.action) {
             ACTION_START -> {
                 tapCount = intent.getIntExtra(EXTRA_COUNT, 0)
+                malaLength = intent.getIntExtra(EXTRA_MALA_LENGTH, 108)
                 paused = false
                 ensureChannel()
                 startForeground(NOTIFICATION_ID, buildNotification())
                 startMediaSession()
+                JapaBellPlayer.preload(this)
                 if (intent.hasExtra(EXTRA_SESSION_ID)) {
                     val sessionId = intent.getIntExtra(EXTRA_SESSION_ID, -1)
                     val cumulativeBase = intent.getIntExtra(EXTRA_CUMULATIVE_BASE, 0)
@@ -154,6 +177,7 @@ class JapaForegroundService : Service() {
                     getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
                         .putInt(PREF_ACTIVE_SESSION_ID, sessionId)
                         .putInt(PREF_CUMULATIVE_BASE, cumulativeBase)
+                        .putInt(PREF_MALA_LENGTH, malaLength)
                         .commit()
                     startBackgroundEngine(sessionId)
                 }
@@ -169,7 +193,20 @@ class JapaForegroundService : Service() {
                 sendBroadcast(Intent(BROADCAST_STATE_CHANGED).putExtra(EXTRA_PAUSED, false))
             }
             ACTION_UPDATE_COUNT -> {
-                tapCount = intent.getIntExtra(EXTRA_COUNT, tapCount)
+                val newCount = intent.getIntExtra(EXTRA_COUNT, tapCount)
+                val newMalaLength = intent.getIntExtra(EXTRA_MALA_LENGTH, malaLength)
+                // Covers an on-screen tap while a screen-off session is
+                // active: Dart already relayed it here via updateCount, so
+                // this is the one place that needs to notice a boundary
+                // was crossed — Dart deliberately skips its own direct
+                // completion-sound trigger whenever a screen-off session
+                // is active, so this doesn't double up with it.
+                JapaBellPlayer.completionKind(tapCount, newCount, newMalaLength)?.let {
+                    vibrate(COMPLETION_VIBRATION_MS)
+                    JapaBellPlayer.play(this, it)
+                }
+                tapCount = newCount
+                malaLength = newMalaLength
                 updateNotification()
             }
             ACTION_UPDATE_SESSION_ID -> {
@@ -179,6 +216,7 @@ class JapaForegroundService : Service() {
                     getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
                         .putInt(PREF_ACTIVE_SESSION_ID, sessionId)
                         .putInt(PREF_CUMULATIVE_BASE, cumulativeBase)
+                        .putInt(PREF_MALA_LENGTH, malaLength)
                         .commit()
                     backgroundChannel?.invokeMethod(
                         "updateSessionId",
@@ -186,11 +224,18 @@ class JapaForegroundService : Service() {
                     )
                 }
             }
+            ACTION_UPDATE_MALA_LENGTH -> {
+                malaLength = intent.getIntExtra(EXTRA_MALA_LENGTH, malaLength)
+                getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                    .putInt(PREF_MALA_LENGTH, malaLength)
+                    .commit()
+            }
             ACTION_END -> {
                 sendBroadcast(Intent(BROADCAST_STATE_CHANGED).putExtra(EXTRA_ENDED, true))
                 getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
                     .remove(PREF_ACTIVE_SESSION_ID)
                     .remove(PREF_CUMULATIVE_BASE)
+                    .remove(PREF_MALA_LENGTH)
                     .commit()
                 stopMediaSession()
                 stopBackgroundEngine()
@@ -222,9 +267,14 @@ class JapaForegroundService : Service() {
                 // avoid.
                 if (direction == 0) return
                 if (paused) return
+                val oldCount = tapCount
                 tapCount++
                 vibrate()
                 updateNotification()
+                JapaBellPlayer.completionKind(oldCount, tapCount, malaLength)?.let {
+                    vibrate(COMPLETION_VIBRATION_MS)
+                    JapaBellPlayer.play(this@JapaForegroundService, it)
+                }
                 sendBroadcast(
                     Intent(BROADCAST_TAP_CAPTURED).putExtra(EXTRA_TAP_COUNT, tapCount),
                 )
@@ -288,7 +338,7 @@ class JapaForegroundService : Service() {
         backgroundEngine = null
     }
 
-    private fun vibrate() {
+    private fun vibrate(durationMs: Long = TAP_VIBRATION_MS) {
         val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             (getSystemService(VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
         } else {
@@ -296,7 +346,7 @@ class JapaForegroundService : Service() {
             getSystemService(VIBRATOR_SERVICE) as Vibrator
         }
         vibrator.vibrate(
-            VibrationEffect.createOneShot(TAP_VIBRATION_MS, VibrationEffect.DEFAULT_AMPLITUDE),
+            VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE),
         )
     }
 

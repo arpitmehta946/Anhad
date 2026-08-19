@@ -269,3 +269,17 @@ func (s *Service) checkRateLimitWindow(ctx context.Context, userID string, taps 
 	}
 	return card.Val() > maxTapsPerMinute, nil
 }
+
+// LifetimeTotal sums every tap ever recorded for a user across all of
+// japa_sessions — unlike the daily total (device-local, resets at
+// midnight), this is the server-authoritative all-time count, unaffected
+// by a reinstall or a new device (docs/ONBOARDING.md §1.3 "lifetime total
+// alongside today's count").
+func (s *Service) LifetimeTotal(ctx context.Context, userID string) (int, error) {
+	const query = `SELECT COALESCE(SUM(tap_count), 0) FROM japa_sessions WHERE user_id = $1`
+	var total int
+	if err := s.store.PG.QueryRow(ctx, query, userID).Scan(&total); err != nil {
+		return 0, fmt.Errorf("sum lifetime japa taps: %w", err)
+	}
+	return total, nil
+}

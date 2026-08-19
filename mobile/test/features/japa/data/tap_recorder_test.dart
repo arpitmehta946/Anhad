@@ -91,4 +91,68 @@ void main() {
     final total = await todayTotalRow(isar);
     expect(total.totalTaps, 35);
   });
+
+  group('undoLastTapInIsar', () {
+    test('removes the most recent tap and decrements the daily total',
+        () async {
+      final id = await createSession();
+      await recordTapInIsar(isar, id);
+      await recordTapInIsar(isar, id);
+      await recordTapInIsar(isar, id);
+
+      final undone = await undoLastTapInIsar(isar, id);
+
+      expect(undone, isTrue);
+      final session = await isar.localJapaSessions.get(id);
+      expect(session!.taps.length, 2);
+      final total = await todayTotalRow(isar);
+      expect(total.totalTaps, 2);
+    });
+
+    test('undoing from an empty session reports false and touches nothing',
+        () async {
+      final id = await createSession();
+
+      final undone = await undoLastTapInIsar(isar, id);
+
+      expect(undone, isFalse);
+      final total = await todayTotalRow(isar);
+      expect(total.totalTaps, 0);
+    });
+
+    test('undoing against a nonexistent session reports false', () async {
+      const missingId = 999999;
+      final undone = await undoLastTapInIsar(isar, missingId);
+      expect(undone, isFalse);
+    });
+
+    test('repeated undo empties the session one tap at a time', () async {
+      final id = await createSession();
+      await recordTapInIsar(isar, id);
+      await recordTapInIsar(isar, id);
+
+      expect(await undoLastTapInIsar(isar, id), isTrue);
+      expect(await undoLastTapInIsar(isar, id), isTrue);
+      expect(await undoLastTapInIsar(isar, id), isFalse);
+
+      final session = await isar.localJapaSessions.get(id);
+      expect(session!.taps, isEmpty);
+      final total = await todayTotalRow(isar);
+      expect(total.totalTaps, 0);
+    });
+
+    test('undo followed by a fresh tap leaves the daily total correct',
+        () async {
+      final id = await createSession();
+      await recordTapInIsar(isar, id); // total: 1
+      await recordTapInIsar(isar, id); // total: 2
+      await undoLastTapInIsar(isar, id); // total: 1 (mistaken tap corrected)
+      await recordTapInIsar(isar, id); // total: 2 (the real next tap)
+
+      final session = await isar.localJapaSessions.get(id);
+      expect(session!.taps.length, 2);
+      final total = await todayTotalRow(isar);
+      expect(total.totalTaps, 2);
+    });
+  });
 }

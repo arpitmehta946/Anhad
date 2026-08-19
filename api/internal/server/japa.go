@@ -12,7 +12,11 @@ import (
 )
 
 // japaStreakHandler reports the authenticated user's current/longest streak
-// (docs/PRD.md §7.4) for display on the japa screen.
+// (docs/PRD.md §7.4) plus their all-time lifetime total
+// (docs/ONBOARDING.md §1.3) for display on the japa screen. Bundled into
+// one response rather than a separate endpoint since the mobile app already
+// fetches this at the moments that matter (screen open, any successful
+// sync) and both are cheap single-row reads.
 func japaStreakHandler(logger *slog.Logger, japaSvc *japa.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := auth.ClaimsFromContext(r.Context())
@@ -27,10 +31,17 @@ func japaStreakHandler(logger *slog.Logger, japaSvc *japa.Service) http.HandlerF
 			writeError(w, http.StatusInternalServerError, "failed to load streak")
 			return
 		}
+		lifetimeTotal, err := japaSvc.LifetimeTotal(r.Context(), claims.Subject)
+		if err != nil {
+			logger.Error("get japa lifetime total failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to load lifetime total")
+			return
+		}
 
 		resp := map[string]any{
 			"current_streak": streak.CurrentStreak,
 			"longest_streak": streak.LongestStreak,
+			"lifetime_total": lifetimeTotal,
 		}
 		if streak.LastChantedDate != nil {
 			resp["last_chanted_date"] = streak.LastChantedDate.Format("2006-01-02")

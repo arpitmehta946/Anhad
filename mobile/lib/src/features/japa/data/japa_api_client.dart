@@ -18,18 +18,26 @@ class JapaTapsRejected implements Exception {
   String toString() => 'japa tap submission rejected: $statusCode $body';
 }
 
-/// A user's standing streak, from `GET /v1/japa/streak`
+/// A user's standing streak plus lifetime total, from `GET /v1/japa/streak`
 /// (api/internal/japa/streak.go) — current/longest consecutive days with at
-/// least one full mala (docs/PRD.md §7.4).
+/// least one full mala (docs/PRD.md §7.4), and every tap ever recorded
+/// server-side (docs/ONBOARDING.md §1.3) — server-authoritative, so it
+/// survives a reinstall or a new device unlike the device-local daily total.
 class JapaStreak {
-  const JapaStreak({required this.currentStreak, required this.longestStreak});
+  const JapaStreak({
+    required this.currentStreak,
+    required this.longestStreak,
+    required this.lifetimeTotal,
+  });
 
   final int currentStreak;
   final int longestStreak;
+  final int lifetimeTotal;
 
   factory JapaStreak.fromJson(Map<String, dynamic> json) => JapaStreak(
         currentStreak: json['current_streak'] as int,
         longestStreak: json['longest_streak'] as int,
+        lifetimeTotal: json['lifetime_total'] as int,
       );
 }
 
