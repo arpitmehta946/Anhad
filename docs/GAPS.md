@@ -1,8 +1,8 @@
 # Open Gaps & Backlog
 
 **Companion to:** all other docs — this is the punch list, not a design spec
-**Version:** 0.2 — living document, expected to grow
-**Date:** August 16, 2026
+**Version:** 0.3 — living document, expected to grow
+**Date:** August 19, 2026
 
 This file exists because a fast-moving build (which this has been) is exactly how real gaps get missed until they're expensive. Nothing here is designed in depth — that's what `PRD.md`, `TECH_STACK.md`, and `USER_FLOWS.md` are for. This is just: **what don't we have an answer for yet.** Add to it whenever something new comes up; check items off as they get a real decision, not just a mention.
 
@@ -28,7 +28,7 @@ Rejected alternatives, and why: a single 6+ value enum (`viewer/creator/admin/mo
 - [x] Role / status / permission-flag split — resolved above.
 - [x] Moderator vs. full Admin — resolved via `is_moderator`, not a separate role.
 - [x] Original artist vs. curator — resolved via `creator_type`, confirmed as a flag not a role.
-- [ ] 🔴 **First-admin bootstrap problem — still genuinely open.** Nobody can grant `role = admin` before one exists. Needs a deliberate one-time mechanism (env-var allowlist checked on first signup, or a manual DB insert) before this schema goes live, or the founder account is locked out of its own moderation tools on day one.
+- [x] **First-admin bootstrap — resolved.** `BOOTSTRAP_ADMIN_PHONE` env var: the one phone number it names gets `role = admin` at the moment it first signs up (`api/internal/auth/user.go`'s `findOrCreateUser`), a one-time mechanism since the `ON CONFLICT` branch never touches role on a later login. Empty by default, so it's a no-op until explicitly configured.
 
 ## Onboarding & first-run experience
 
@@ -84,7 +84,7 @@ Rejected alternatives, and why: a single 6+ value enum (`viewer/creator/admin/mo
 
 - [ ] 🟡 **No CI pipeline** — nothing runs tests or builds automatically on push yet.
 - [ ] 🟡 **No crash reporting** for the mobile app (separate from the privacy-respecting product analytics already chosen in `TECH_STACK.md` §9 — this is about catching bugs, not tracking behavior).
-- [ ] 🟢 **No automated test coverage** for the Flutter app yet — the Go API has been verified manually and thoroughly each step, but nothing's automated to keep it that way as it grows.
+- [x] **Automated test coverage for the Flutter app — done for the highest-risk surface.** The japa sync path (`daily_total_store`, `tap_recorder`, `japa_sync_service`, `japa_session_controller`) has 40+ test cases covering the exact lost-update/desync bug classes found during manual testing. Not yet extended to auth, the feed, or other features as they're built.
 - [ ] 🟢 **App store release process** — staged rollout, versioning strategy — not thought through yet.
 
 ## Growth mechanics
