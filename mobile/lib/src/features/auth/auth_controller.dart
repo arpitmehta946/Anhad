@@ -1,3 +1,6 @@
+import 'dart:developer' as developer;
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
@@ -75,9 +78,9 @@ class AuthController extends StateNotifier<AuthState> {
       await _api.requestOtp(phoneNumber);
       if (!mounted) return;
       state = state.copyWith(isSubmitting: false, phoneNumber: phoneNumber);
-    } catch (e) {
+    } catch (e, stackTrace) {
       if (!mounted) return;
-      state = state.copyWith(isSubmitting: false, error: _describe(e));
+      state = state.copyWith(isSubmitting: false, error: _describe(e, stackTrace));
     }
   }
 
@@ -94,9 +97,9 @@ class AuthController extends StateNotifier<AuthState> {
       );
       if (!mounted) return;
       state = state.copyWith(isSubmitting: false, isAuthenticated: true);
-    } catch (e) {
+    } catch (e, stackTrace) {
       if (!mounted) return;
-      state = state.copyWith(isSubmitting: false, error: _describe(e));
+      state = state.copyWith(isSubmitting: false, error: _describe(e, stackTrace));
     }
   }
 
@@ -148,8 +151,27 @@ class AuthController extends StateNotifier<AuthState> {
     }
   }
 
-  String _describe(Object e) =>
-      e.toString().replaceFirst(RegExp(r'^[A-Za-z]+Exception: '), '');
+  /// Turns a caught error into copy a person can actually act on
+  /// (docs/FRONTEND_GUIDELINES.md §9: say what happened and what to do,
+  /// never surface raw exception/OS detail). The one case with anything
+  /// genuinely useful to show is [HttpException] thrown by [AuthApiClient]
+  /// — its message *is* the server's own {"error": "..."} response
+  /// (api/internal/server/auth.go), already written as plain, person-facing
+  /// copy, not a stack-trace fragment. Everything else — a dropped
+  /// connection, a timeout, a malformed response — never got far enough to
+  /// have anything server-written to relay, so there's nothing accurate to
+  /// show beyond "something's wrong, try again"; the real cause goes to the
+  /// log instead of the screen.
+  String _describe(Object e, StackTrace stackTrace) {
+    if (e is HttpException) return e.message;
+    developer.log(
+      'auth request failed',
+      name: 'auth',
+      error: e,
+      stackTrace: stackTrace,
+    );
+    return "Couldn't reach the server. Check your connection and try again.";
+  }
 }
 
 final authApiClientProvider = Provider<AuthApiClient>((ref) {

@@ -7,6 +7,12 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
+    <!-- Every build talks to the API (phone-OTP auth, japa sync) — this was
+         previously only declared in debug/AndroidManifest.xml (added there
+         for Flutter's own dev tooling — hot reload, breakpoints), which
+         meant a release build had no path to make any network call at all,
+         cleartext or not. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
 
     <application
         android:label="anhad"

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-only cleartext exception for the local dev API (mobile/lib/src/config.dart).
+  Android blocks cleartext (plain HTTP) traffic by default for apps targeting
+  API 28+ — this scopes an exception to the exact dev hosts, not a blanket
+  allow, and lives in src/debug/ specifically so it's never bundled into a
+  profile/release build at all (see debug/AndroidManifest.xml, which is the
+  only manifest that references this file). No base-config override, so
+  every other domain — including a real production API host — keeps
+  Android's secure default of requiring HTTPS.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- A physical device over USB, via `adb reverse tcp:8080 tcp:8080`. -->
+        <domain includeSubdomains="false">localhost</domain>
+        <!-- The Android emulator's alias for the host machine's localhost. -->
+        <domain includeSubdomains="false">10.0.2.2</domain>
+        <!-- The dev machine's WiFi LAN IP, for a physical device over WiFi
+             instead of USB + adb reverse. DHCP-assigned — update this (and
+             API_BASE_URL) if it changes; ipconfig on Windows shows the
+             current one under the WiFi adapter. -->
+        <domain includeSubdomains="false">192.168.1.3</domain>
+    </domain-config>
+</network-security-config>
