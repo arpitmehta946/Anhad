@@ -4,7 +4,7 @@
 **Tagline:** A sanctuary for bhajans, mantras & stutis.
 **Version:** 0.1 (Concept → Pre-MVP)
 **Date:** August 16, 2026
-**Status:** Draft for founder review — see [Open Decisions](#12-open-decisions-needing-your-input) before build starts
+**Status:** Draft for founder review — see [Open Decisions](#12-open-decisions) before build starts
 
 > **On the name.** "Anhad" comes from *anhad naad* — the "unstruck sound," a concept shared across Nada Yoga, Sant Kabir's poetry, and Sikh Gurbani, describing the divine vibration heard within rather than produced by striking an instrument. It's used here as a working codename, not a final brand. Do **not** name the product "Bhakti" or any Bhakti-prefixed variant — see [§4.3](#43-naming-collision-warning).
 
@@ -83,26 +83,87 @@ This is treated as a hard non-functional requirement in [§9.3](#93-compliance) 
 
 ### 4.1 What Anhad is
 
-A vertical-video social app where the **only** permitted content categories are:
+A vertical-video app for **devotional singing and recitation**. The only permitted content categories are:
 
-`Bhajan` · `Mantra` · `Stuti / Chalisa` · `Aarti` · `Kirtan / Sant Vani` · `Katha / Discourse` · `Meditation & Naad (sound healing)` · `Darshan & Sacred Spaces` (temple visits, nature, ritual footage — silent or backed by library audio)
+`Bhajan` · `Mantra` · `Stuti / Chalisa` · `Aarti` · `Kirtan` · `Sant Vani` (sung or recited saint-poetry and scripture) · `Meditation & Naad` (instrumental/ambient, for the audio library)
+
+**Removed from the original scope:** `Katha / Discourse` and `Darshan & Sacred Spaces`. This is the single most consequential simplification in this document, and it was deliberate — see [§4.2](#42-what-anhad-is-explicitly-not-v1) for what it buys.
 
 ### 4.2 What Anhad is explicitly not (V1)
 
 - **Not** filmi songs, romantic/secular music, or commercial pop — even devotionally-themed remixes of commercial tracks are excluded (see the classification pipeline in [§8.1](#81-the-songs-vs-bhajans-problem)).
 - **Not** a general "spirituality" or wellness catch-all (yoga tutorials, life-coaching, astrology, tarot). The V0 idea was broader; this scope is deliberately narrower because narrow is defensible and moderatable, broad is not.
-- **Not** a space for political content, denominational attacks, or "aggressive debate" framed as discourse — see [§8.3](#83-the-gray-zone-policy) for where the line sits.
+- **Not katha, pravachan, or living-guru discourse.** Cutting this removes the hardest moderation problem in the original design: judging whether a discourse crossed into politics, sectarian attack, or "aggressive debate." Sectarian conflict lives in commentary about *living* teachers — personality, lineage claims, allegations — not in singing. Two people singing to Krishna in different traditions don't fight; two people arguing about whose guru is right do. Moderation becomes a single problem (is this audio devotional or filmi?) instead of two.
+- **Not darshan or temple footage.** Removed with discourse; it also sidesteps competing directly with Sri Mandir and DevDham, who own that surface (see [§3.3](#33-competitive-landscape)).
+- **Not** a space for political content or denominational attacks in any form, including in Satsang comments.
 - **Not**, in V1, a marketplace or ad-sales platform — see [§10.5](#105-explicitly-out-of-scope-for-v1).
+
+**Sant Vani stays, deliberately.** Kabir dohas, Tulsidas chaupais, Meera pads, Tukaram abhangs, and scriptural recitation are shared *across* sampradayas, centuries old, and carry no sectarian charge — nobody fights over Kabir. That is a different thing from commentary on a living teacher, and the line between them is the line this scope draws.
+
+### 4.2.1 The rights rule — one line that solves two problems
+
+**A creator may only upload a recording they made themselves.** Their own voice, their own instrument, their own camera.
+
+This single rule does two jobs at once:
+- **Copyright.** A user singing Kabir is fine — the words are public domain and the performance is theirs. Re-uploading someone else's recording of a satsang, a commercial bhajan track, or another artist's video is not, and India's Copyright Act protects a recording for the author's lifetime plus 60 years, so "it's devotional" is not a defence.
+- **Authenticity.** It structurally eliminates the "faceless page" repackaging problem identified in [§3.1](#31-existing-supply-the-demand-is-already-proven), where the same handful of source videos circulate endlessly through accounts that made none of them.
+
+It also **retires the curator role** — see [§10.2](#102-design-decision-who-gets-direct-monetization).
 
 ### 4.3 Naming collision warning
 
 Search confirms **"Bhakti" is one of the most saturated words available for this product**: BhaktiPath (multiple unrelated apps use this exact name), myBhakti, Bhakti Sakha, Bhakti Game, Bhakti: Gita & Mantras, and BhaktiReel all already exist in app stores. Launching under any Bhakti-prefixed name creates real user-confusion and trademark risk. Treat brand naming as its own workstream with a proper trademark search — don't default to the obvious word.
 
-### 4.4 Tradition scope — a decision to make consciously, not by default
+### 4.4 Tradition scope
 
-The source conversation used heavily Hindu/Sanatan-coded terms (Sanskrit, Krishna, Shiva, puja) but also mentioned Gurbani and Sufi kalam. Trying to serve every dharmic and devotional tradition equally on day one multiplies moderation complexity (each tradition needs its own "what counts as authentic" classifier logic) and risks the app feeling unfocused to any one community.
+**Content scope is Sanatan/Hindu devotional. All sampradayas are served; none is excluded.**
 
-**Recommendation:** launch V1 focused on Hindu/Sanatan devotional content (the largest addressable content base per [§3.1](#31-existing-supply-the-demand-is-already-proven)), with the data model, category tags, and moderation pipeline **architected from day one** to add Gurbani, Sufi qalam, Buddhist chant, and other traditions as clearly-scoped V2/V3 expansions rather than an afterthought retrofit. This is flagged as a founder decision in [§12](#12-open-decisions-needing-your-input), not decided unilaterally here.
+The founding principle here is *Vasudhaiva Kutumbakam* — choosing one sampradaya over another would be arbitrary, and there is genuine product value in cross-exposure: a Warkari *abhang* singer's audience discovering Kannada *Dasa Sahitya* is something no existing platform enables.
+
+Two distinctions make this workable rather than unfocused:
+
+**Policy is open; seeding is narrow.** No sampradaya is blocked from day one. But the Founding 50 cohort ([`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md) Phase 3) is necessarily concentrated, and it starts with **Hindi, Sanskrit, and North Indian traditions** — the largest single addressable base, and one where Braj Bhasha, Avadhi, Rajasthani, and Maithili repertoires are mutually intelligible enough to feel like one community. South Indian traditions (Tamil Thevaram, Telugu Annamacharya sankirtanas, Kannada Dasa Sahitya) are a deliberate later cohort, not an exclusion — they are effectively a separate musical system (Carnatic vs. Hindustani) and deserve their own seeding effort rather than being an afterthought in someone else's feed. These are different documents: the open policy belongs in Community Guidelines, the narrow seeding belongs in the launch plan.
+
+**Content is scoped; people are not.** The platform hosts Sanatan devotional content. **Anyone may sing it, regardless of their own faith** — a tradition with a long history in Indian music. Anhad does not ask, record, or infer a user's religion. Beyond being right, this avoids both the app-store discrimination problem and the reputational trap of becoming an identity-policing space.
+
+**Geography:** India-first for V1. Diaspora users are welcome but not built for — no ₹/$ dual pricing, no international payment rails, no diaspora-targeted festival calendar in V1. Note the size of what this defers: Sri Mandir's diaspora ARPU is roughly ₹7,000 versus ₹600–800 domestically ([§3.2](#32-market-sizing)), so this is a focus decision with a real cost attached, revisited post-PMF.
+
+### 4.5 Age policy & Family Accounts
+
+Target audience is deliberately wide: roughly 8 to 70, with the explicit intent of passing practice between generations. Bhajan content is inherently family-safe, and that is a genuine competitive asset — but the mechanism needs care, because two hard constraints apply.
+
+**The legal constraint.** Under India's DPDP Act 2023 and DPDP Rules 2025, **anyone under 18 is a "child"** — a bright line, with no "mature minor" exception, stricter than GDPR (13–16) or COPPA (13). Processing a child's personal data requires **verifiable** parental consent (a parent ticking a box is explicitly insufficient; the platform must verify the consenting adult's identity), and tracking, behavioural monitoring, profiling, and targeted advertising directed at children are prohibited outright. Penalties reach ₹250 crore. Full compliance is due by **May 2027**.
+
+**The design that satisfies it:**
+
+| Action | Requirement |
+|---|---|
+| Watching, and local japa counting | **Any age, no account.** No personal data processed, so no consent needed |
+| Account creation (18+) | Standard phone OTP |
+| Account creation (under 18) | Verifiable parental consent, or a Family Account below |
+| Creator account | **18+ only** — payouts require KYC regardless |
+| Live streaming, commenting | **18+ only** |
+
+The deferred-signup onboarding already designed in [`USER_FLOWS.md`](./USER_FLOWS.md) and [`ONBOARDING.md`](./ONBOARDING.md) solves most of this for free: a child can watch bhajans and chant a full mala without an account existing at all. The trade-off is that local-only practice doesn't sync across devices — acceptable, and consistent with the offline-first design in [`TECH_STACK.md`](./TECH_STACK.md) §2.
+
+**Family Accounts — the deliberate answer for under-18 singers.**
+
+Under-18 devotional singers are real, numerous, and genuinely underserved: they sing well and get no audience. On mainstream platforms the workaround is a parent quietly creating an account and everyone ignoring the rules. **Anhad should do this explicitly rather than wink at it** — every industry with child performers (music, film, sport) already works this way, and no devotional platform has done it deliberately.
+
+- The **parent is the legal account holder**, completes KYC, and receives all earnings — which also resolves the separate problem that minors cannot easily receive payouts.
+- The **child is the credited performer**: display name and audience-facing credit are the child's. To viewers, the child is the artist.
+- The parent controls comments, visibility, and whether live is permitted at all.
+
+**Non-negotiable protections on any account with a minor performer** — these are children performing to an adult audience, so the bar is higher than ordinary UGC:
+
+- **Direct messaging is off entirely**, not "restricted." This is where the real risk sits.
+- **Comments off by default**, parent opts in; "reflection only" mode available ([§7.2](#72-reflective-interactions)).
+- **No live streaming by minors in V1.** Recorded only. If added later, require parent co-presence. Live plus minors is among the highest-risk configurations in consumer apps and is not worth carrying at launch.
+- **No location, school, or city** in any profile with a minor performer.
+- **No behavioural tracking or profiling** — required by DPDPA, and consistent with the no-ads position in [§10.5](#105-explicitly-out-of-scope-for-v1) anyway.
+- **A minor's audio is excluded from the reusable "use this sound" library by default** (parent opt-in only). A child's voice circulating in videos they don't control is a foreseeable harm the audio-reuse design would otherwise create.
+
+There is a real market position in this: *"the safest place for your child to share their singing."* Instagram cannot credibly say that.
 
 ---
 
@@ -188,6 +249,34 @@ See full detail in [§10](#10-monetization-model).
 
 ## 8. Content Moderation & Trust Requirements
 
+### 8.0 The governing principle: structure over gatekeeping
+
+The instinct when protecting a devotional space is to vet *people* — approve the good teachers, exclude the controversial ones. That instinct is understandable and largely wrong as a primary strategy: it is one-time, judgement-heavy, unfalsifiable, and it makes the platform liable for a character assessment it cannot defend.
+
+**What actually keeps this platform clean is structural — rules that are objectively checkable, so moderation is cheap, consistent, and defensible.** Most of it is already designed, just not framed this way:
+
+| Existing design | What it prevents |
+|---|---|
+| Singing-only scope ([§4.1](#41-what-anhad-is)) | Removes discourse, and with it almost all sectarian conflict |
+| The rights rule ([§4.2.1](#421-the-rights-rule--one-line-that-solves-two-problems)) | Repackaging, faceless pages, and copyright infringement in one line |
+| Audio classifier ([§8.1](#81-the-songs-vs-bhajans-problem)) | Makes "is this devotional?" a technical question, not a moral one |
+| Library-audio fast path ([§7.3](#73-spiritual-audio--sound-library)) | Makes the easy path also the clean path |
+| ₹99 stake + 3 clean posts + trust score + 3 strikes ([§7.5](#75-creator-onboarding--verification)) | Real friction for spammers, invisible to genuine creators |
+| Phone-number identity ([§9.2](#92-security)) | One number, one account — bans that actually stick |
+| No advertising ([§10.5](#105-explicitly-out-of-scope-for-v1)) | Removes the economic incentive that produces rage-bait everywhere else |
+
+None of the above requires anyone to judge whether a person is spiritually legitimate. That is the point.
+
+### 8.0.1 Prohibited content — the three gaps this structure doesn't cover
+
+**Financial solicitation and scams.** Indian devotional content carries a persistent problem of donation requests, fake temple fundraising, paid-puja touting, and astrologers farming devotees. This is where actual financial harm to users occurs, and it is the most under-addressed risk in this entire document. The rule must be flat and unambiguous, because anything discretionary here becomes a negotiation:
+
+> **No donation requests, no payment handles (UPI IDs, QR codes, bank details), no external links** — in videos, captions, audio, profile bios, or Satsang comments. All money moves through Diya tokens ([§10.1](#101-the-three-sustainable-revenue-streams-v1)) or it does not move at all.
+
+**Miracle and medical claims.** "Chant this 108 times to cure your illness" is common, causes real harm, and creates real legal exposure. Devotional practice may be described as bringing peace, focus, or comfort. It may **never** be presented as curing disease, treating a condition, or substituting for medical care.
+
+**Satsang comments, not videos.** The bhajans will stay pristine while the comments rot underneath — sectarian sniping migrates to wherever it is cheapest. **Recommendation: make "reflection only" the default comment mode** ([§7.2](#72-reflective-interactions)), with creators opting *into* open comments rather than out of them.
+
 ### 8.1 The "songs vs. bhajans" problem
 
 This is the single hardest and most important technical requirement, because Bollywood and devotional music genuinely share instrumentation (harmonium, dholak, tabla, flute), so audio timbre alone can't classify it. A three-layer pipeline, run asynchronously at upload (never blocking the uploader, but blocking *publication* to the public feed):
@@ -229,6 +318,36 @@ Semi-devotional content (a classical ghazal, a Sufi kalam, a pop melody rewritte
 
 Trusted-tier accounts (verified artists, certified teachers, senior community moderators) review content flagged or held by the automated pipeline. This tier also doubles as the human backstop the IT Rules effectively require, and as a defense against classifier false positives/negatives — track both error rates as a KPI ([§11](#11-success-metrics--kpis)).
 
+### 8.5 Verification of teachers and institutions
+
+Anhad wants respected teachers on the platform. Verifying them requires care, because the obvious approach — approving people who seem spiritually legitimate and rejecting the controversial — fails in three specific ways.
+
+**Verification confirms identity, not character.** This is the framing that survives contact with reality. *"This is genuinely the account of X"* is a claim defensible indefinitely. *"X is a good person"* is not, and the moment a verified figure is credibly accused of anything, the story becomes "Anhad verified him." **State this publicly in Community Guidelines**, not just internally.
+
+**"Screen for controversy" has a specific failure mode.** Search results for almost any prominent Indian teacher contain accusations originating from rival sampradayas. Filtering on *"controversy exists online"* systematically excludes whoever has the most aggressive rivals — which is backwards, and quietly violates the *Vasudhaiva Kutumbakam* commitment in [§4.4](#44-tradition-scope).
+
+**Rejection reasons create defamation exposure.** Telling an applicant they were rejected as "controversial," or having that leak, is genuinely actionable in India. Decline with a neutral reason ("does not currently meet verification criteria") and never a characterisation.
+
+**Vet on what is objective and defensible:**
+
+1. **Identity** — is this genuinely the person, or an authorised representative?
+2. **Institutional backing** — a registered trust, ashram, or math behind the account. Strongest available signal and the easiest to verify.
+3. **Matters of public record only** — convictions and active charges. Not rumours, not rival accusations. **Define the bar in writing**: allegation, FIR, charges, and conviction are four very different thresholds, and FIRs are routinely filed by rivals.
+
+**Prefer institutional accounts over individual ones.** An official ashram or math account distributes accountability, is far easier to verify, survives the death or disgrace of any individual, and structurally avoids personality-cult dynamics.
+
+### 8.6 The exit process — what happens when a verified figure is accused
+
+Vetting reduces frequency; it never eliminates. Over a long enough window, some verified figure will face serious allegations — this has happened repeatedly in India. **The exit process matters more than the entry process, and must be written before it is needed**, because deciding mid-crisis under press attention is how platforms make their worst calls.
+
+The policy needs to specify, in advance: what triggers a review (allegation vs. FIR vs. charges vs. conviction); whether verification is suspended or revoked at each stage; what happens to the figure's existing content; what happens to *followers'* content featuring them; whether earnings are frozen; and who decides. Drafting this is an open item in [§12](#12-open-decisions).
+
+### 8.7 The strongest lever is not a control
+
+**The Founding 50 set the platform's culture permanently.** Whatever tone those creators establish is what the next thousand imitate. A platform seeded with serious, generous singers stays that way; one seeded with people chasing reach does not, and no moderation system recovers it afterwards.
+
+Effort spent selecting those fifty ([`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md) Phase 3) has more effect on long-term platform quality than any classifier, threshold, or rule in this section.
+
 ---
 
 ## 9. Non-Functional Requirements
@@ -259,10 +378,16 @@ Creator payouts are never a fixed liability — see [§10.4](#104-royalty-mechan
 
 ### 10.2 Design decision: who gets direct monetization
 
-The founder conversation this PRD is based on correctly identified a problem and then, in later messages, drifted back toward a solution that reopens it — worth resolving explicitly here rather than carrying the contradiction forward:
+**The curator role is retired.** Earlier drafts split creators into *original artists* and *curators* (people clipping and subtitling a guru's discourse), and restricted Diya token gifting to the former, because paying personal dakshina to someone for relaying another person's words is ethically and legally murky.
 
-- **The problem (correctly identified):** direct tipping/dakshina feels culturally awkward for sacred content, and a large share of accounts will be **curators**, not original artists — people clipping and subtitling a guru's public discourse. Paying personal dakshina to a curator/aggregator for someone else's words is ethically and possibly legally murky (attribution, consent, copyright).
-- **The resolution used in this PRD:** Diya token gifting is available **only on content from Verified Original Artists** (singers, discourse-givers who are the actual source) — never on curated/clipped content. Curators instead earn through the pooled Community Seva Fund ([§10.3](#103-the-streak-reward-must-be-temporary)) based on watch time and engagement, which sidesteps the "who deserves this specific tip" problem entirely.
+The rights rule in [§4.2.1](#421-the-rights-rule--one-line-that-solves-two-problems) dissolves that problem rather than managing it: if a creator may only upload a recording they made themselves, **every creator is an original performer by definition.** There is no curator tier left to restrict.
+
+Consequences for the data model and payouts:
+- `creator_type` (`original | curator`) can be **dropped** from the schema in [`GAPS.md`](./GAPS.md) — it no longer distinguishes anything.
+- Diya token gifting is available on **all** verified-creator content, with no eligibility test.
+- The Community Seva Fund becomes **one pool**, not the original-artists/curators split described in earlier drafts.
+
+This removes a whole tier of eligibility logic, an enum, and a category of judgement calls from moderation.
 
 ### 10.3 The streak reward must be temporary
 
@@ -299,14 +424,18 @@ Deliberately avoid optimizing for raw time-on-app — maximizing session length 
 
 ---
 
-## 12. Open Decisions Needing Your Input
+## 12. Open Decisions
 
-These are called out rather than decided unilaterally:
+**Resolved August 18, 2026:** tradition scope ([§4.4](#44-tradition-scope)), content categories ([§4.1](#41-what-anhad-is)), the rights rule ([§4.2.1](#421-the-rights-rule--one-line-that-solves-two-problems)), curator role retired ([§10.2](#102-design-decision-who-gets-direct-monetization)), age policy and Family Accounts ([§4.5](#45-age-policy--family-accounts)), diaspora deferred to post-PMF, creator minimum age 18+.
 
-1. **Tradition scope** ([§4.4](#44-tradition-scope--a-decision-to-make-consciously-not-by-default)): Hindu/Sanatan-first with a defined expansion path, or pan-dharmic from day one? Recommendation given, decision is yours.
-2. **Final brand name** ([§4.3](#43-naming-collision-warning)): needs a proper trademark/domain search — "Anhad" is a placeholder, not a proposal to ship with.
-3. **Diaspora/international launch sequencing**: India-first is assumed throughout this document (₹ pricing, UPI payouts, IT Rules compliance) — confirm whether US/UK/Gulf diaspora is a parallel launch market or a post-PMF expansion.
-4. **Minimum age for creator accounts**: recommend 18+ for anyone receiving payouts (wallet/KYC implications), with viewing open to a general/family audience — confirm.
+**Still open:**
+
+1. **Final brand name** ([§4.3](#43-naming-collision-warning)): needs a proper trademark/domain search — "Anhad" is a placeholder, not a proposal to ship with.
+2. **Live streaming sequencing.** Live is wanted (it creates the personal connection recorded video can't), but it **breaks the moderation model** in [§8.1](#81-the-songs-vs-bhajans-problem): that pipeline runs *before* publication, and live has no "before." Recommended shape — recorded-only in V1; live in phase 2, restricted to trusted-tier creators with a clean history, with a delay buffer and staffed human moderation during live windows, never open to new signups, and never to minors ([§4.5](#45-age-policy--family-accounts)). Also materially more expensive: RTMP ingest, live transcoding, real-time CDN. Confirm the phasing.
+3. **Living-guru content — allowed at all, and on what terms?** [§4.2](#42-what-anhad-is-explicitly-not-v1) currently excludes discourse entirely, which resolves most sectarian risk. If any living-teacher content is later admitted, it needs: mandatory attribution, a ban on donation solicitation inside clips (where devotional scams concentrate), and either source consent or restriction to officially-affiliated accounts.
+4. **Sectarian brigading policy.** Mass-reporting of one sampradaya's creators by another's is foreseeable. Rate-limited reporting plus the existing trust-score system probably covers it, but the escalation path needs writing before launch, not during an incident.
+5. **A guru facing criminal allegations — the exit process** ([§8.6](#86-the-exit-process--what-happens-when-a-verified-figure-is-accused)). Needs writing before it is needed: what triggers review (allegation / FIR / charges / conviction), whether verification suspends or revokes at each stage, what happens to their content and to followers' content featuring them, whether earnings freeze, and who decides.
+6. **Caste-related content policy.** Worth naming explicitly: the bhakti tradition is itself strongly anti-caste (Kanaka Dasa came from a Kuruba shepherd family; Annamacharya opposed untouchability in the 15th century), but modern sectarian content sometimes carries caste politics. Caste-based hate speech is separately illegal in India under the SC/ST Act, beyond general hate-speech rules.
 
 ---
 

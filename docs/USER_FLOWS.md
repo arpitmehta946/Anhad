@@ -38,7 +38,7 @@ Show the product before asking anything of the user. Research on this pattern is
 [Open app] → [Real, curated feed plays immediately — sound on]
                           │
         [Small, dismissible interest-chip row: "Morning Aarti ·
-         Hanuman Chalisa · Sound Healing · Discourse" — tap to
+         Hanuman Chalisa · Sound Healing · Sant Vani" — tap to
          lightly bias the feed, or ignore entirely]
                           │
    [First time they tap Pranam / Satsang / Smaran / Sevak]

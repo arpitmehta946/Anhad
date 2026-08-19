@@ -152,4 +152,12 @@ Items 1 and 2 are worth doing before the first-run flow, since the first run *de
 
 - **Feed onboarding** remains undecided (`USER_FLOWS.md`) — it can't be settled until the feed exists.
 - **Sankalp ↔ Seva Pass interaction:** `PRD.md` §10.3 grants a 7-day trial at 21 days. Does completing a *sankalp* grant it, and do 11- and 36-day sankalps grant anything different? Needs a decision before implementation.
-- **Tradition scope** (`PRD.md` §4.4) affects sankalp framing — the vocabulary here is Hindu/Sanatan. Gurbani, Sufi, and Buddhist practice have their own equivalents and would need their own language, not a find-and-replace.
+- ~~**Tradition scope**~~ — ✅ **resolved August 18, 2026** (`PRD.md` §4.4). Content scope is Sanatan/Hindu, all sampradayas served, seeded Hindi/Sanskrit/North-Indian first. Sankalp vocabulary is therefore correct as written and needs no hedging — it is native to the tradition the platform serves, not a borrowed term requiring translation for other faiths.
+
+## 7. Onboarding implications of the August 18 scope decisions
+
+Three decisions in `PRD.md` §4 change what the first-run flow must handle:
+
+- **Age gating (`PRD.md` §4.5).** The flow in §3 already defers signup until after the first mala, which is exactly right for DPDPA: a child can watch and chant with no account and therefore no data processed. But **step 4 (the OTP ask) is now an age gate** — it needs an age declaration, routing under-18s to either verifiable parental consent or the Family Account path. That's a new screen, not a field.
+- **Family Accounts (`PRD.md` §4.5).** A parent setting up an account for a child singer is a genuinely different onboarding path — parent KYC, child's performing name, comment and visibility defaults. It should not be bolted onto the standard creator flow.
+- **Singing-only scope (`PRD.md` §4.1).** Any onboarding copy or category picker referencing katha, pravachan, or darshan is now wrong. The arrival screen's promise should be about *singing and reciting*, not devotional content generally.

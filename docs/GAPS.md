@@ -1,7 +1,7 @@
 # Open Gaps & Backlog
 
 **Companion to:** all other docs — this is the punch list, not a design spec
-**Version:** 0.3 — living document, expected to grow
+**Version:** 0.4 — living document, expected to grow
 **Date:** August 19, 2026
 
 This file exists because a fast-moving build (which this has been) is exactly how real gaps get missed until they're expensive. Nothing here is designed in depth — that's what `PRD.md`, `TECH_STACK.md`, and `USER_FLOWS.md` are for. This is just: **what don't we have an answer for yet.** Add to it whenever something new comes up; check items off as they get a real decision, not just a mention.
@@ -30,6 +30,17 @@ Rejected alternatives, and why: a single 6+ value enum (`viewer/creator/admin/mo
 - [x] Original artist vs. curator — resolved via `creator_type`, confirmed as a flag not a role.
 - [x] **First-admin bootstrap — resolved.** `BOOTSTRAP_ADMIN_PHONE` env var: the one phone number it names gets `role = admin` at the moment it first signs up (`api/internal/auth/user.go`'s `findOrCreateUser`), a one-time mechanism since the `ON CONFLICT` branch never touches role on a later login. Empty by default, so it's a no-op until explicitly configured.
 
+## Gaps created by the August 18 scope decisions
+
+These surfaced *while writing up* the decisions in `PRD.md` §4.1–4.5 and §10.2 — none is a blocker, but each needs an answer before the feature it touches is built.
+
+- [ ] 🔴 **Instrumental-only content has nothing for the classifier to read.** A flute or harmonium rendition of a bhajan with no vocals produces no lyrics, so the Whisper → LLM stage of the pipeline (`PRD.md` §8.1) has no input at all. Currently undefined behaviour. Likely answer: fingerprint check plus mandatory creator tagging of which composition it is, plus human review. Needs deciding before the `Meditation & Naad` category opens.
+- [ ] 🟡 **Account transfer when a minor performer turns 18.** Family Accounts (`PRD.md` §4.5) put the parent as legal holder. On the child's 18th birthday, who owns the followers, the earnings history, the audio library entries, and the trust score? Needs a defined migration, or a 17-year-old with a real audience hits a wall.
+- [ ] 🟡 **Does a child *appearing in* a video count as processing the child's data under DPDPA, even when the parent holds the account?** The Family Account design assumes the parent is the data principal. The video itself is arguably the child's personal data, which would trigger Section 9 obligations regardless of who holds the login. **This one needs a lawyer, not a product decision** — flagged rather than assumed either way.
+- [ ] 🟡 **Age self-declaration is trivially bypassed.** A 15-year-old can simply claim to be 18. India has high device-sharing rates, and ID-based age gating is widely acknowledged to be prone to large-scale circumvention. The Family Account is opt-in by an honest parent; it does not detect a dishonest signup. Needs a stated position on detection and remediation (convert to Family Account vs. suspend), since it will happen.
+- [ ] 🟢 **`creator_type` enum is now dead.** `PRD.md` §10.2 retires the curator role; the `original | curator` field no longer distinguishes anything and should be dropped in a migration. Note the Roles section above still lists it as resolved-with-`creator_type` — that resolution is superseded.
+- [ ] 🟢 **Sant Vani needs a working definition for moderators.** "Historical saint-poetry" is clear for Kabir and Meera, less clear for a 20th-century saint whose recordings are still in copyright (author's life + 60 years under India's Copyright Act). The §4.2.1 rights rule mostly covers this — you may only upload your *own* recording — but the guidance for the moderation queue should say so explicitly.
+
 ## Onboarding & first-run experience
 
 - [ ] 🔴 **No onboarding flow designed at all yet** — see `USER_FLOWS.md`, the new companion doc, for options.
@@ -38,8 +49,13 @@ Rejected alternatives, and why: a single 6+ value enum (`viewer/creator/admin/mo
 
 ## Trust & safety
 
-- [ ] 🔴 **No in-app reporting mechanism, and no `reports` table.** Required by IT Rules 2021, not optional polish (`PRD.md` §3.4).
-- [ ] 🟡 **No admin audit log** (who moderated/banned what, when, why) — same regulation, plus basic accountability once more than one moderator exists.
+- [ ] 🔴 **No in-app reporting mechanism, and no `reports` table.** Required by IT Rules 2021, not optional polish (`PRD.md` §3.4). Still the highest-priority unbuilt safety item.
+- [ ] 🔴 **Anti-scam rules not implemented.** `PRD.md` §8.0.1 defines the rule (no donation requests, payment handles, or external links anywhere — videos, captions, bios, comments). Needs enforcement in the upload pipeline and comment filter, not just a guidelines line. This is where actual financial harm to users happens and it has no technical control today.
+- [ ] 🔴 **No medical/miracle-claim detection.** "Chant this to cure your illness" — real harm, real legal exposure, common in the category. Needs to be part of the classifier prompt, not a separate system.
+- [ ] 🟡 **Comment default should flip to "reflection only"** (`PRD.md` §8.0.1). Currently creators opt in to restriction; it should be the reverse. Small change, large effect on where sectarian conflict lands.
+- [ ] 🟡 **Verification bar undefined.** `PRD.md` §8.5 sets the framing (identity not endorsement, institutional accounts preferred, public record only). Still needs the written threshold: allegation vs. FIR vs. charges vs. conviction.
+- [ ] 🟡 **Exit process unwritten** (`PRD.md` §8.6) — what happens when a verified figure is credibly accused. Must exist before it's needed.
+- [ ] 🟡 **No admin audit log** (who moderated/banned what, when, why) — IT Rules requirement, plus basic accountability once more than one moderator exists.
 - [ ] 🟢 Appeals flow for a rejected upload or a strike — mentioned in `PRD.md` §7.8, not built.
 
 ## Search & discovery
