@@ -12,7 +12,7 @@ import 'package:anhad/src/features/japa/japa_session_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:isar_community/isar.dart';
 
-enum _FakeOutcome { accept, fail }
+enum _FakeOutcome { accept, fail, reject }
 
 class _FakeSubmitter implements JapaTapsSubmitter {
   _FakeOutcome outcome = _FakeOutcome.accept;
@@ -23,6 +23,9 @@ class _FakeSubmitter implements JapaTapsSubmitter {
     submittedBatches.add(taps);
     if (outcome == _FakeOutcome.fail) {
       throw const _NetworkFailure();
+    }
+    if (outcome == _FakeOutcome.reject) {
+      throw JapaTapsRejected(422, 'anti-cheat rejection');
     }
   }
 }
@@ -292,6 +295,39 @@ void main() {
     await controller.tap();
     await pumpUntil(() => controller.state.tapsInRound == 1);
     expect(controller.state.roundsCompleted, 1);
+  });
+
+  test(
+      'a rejected batch is excluded from the ring, not just the daily '
+      'total — the round it came from is corrected back out', () async {
+    final controller = makeController();
+    await pumpUntil(() => controller.state.sessionId != null);
+    final firstSessionId = controller.state.sessionId;
+
+    fakeApi.outcome = _FakeOutcome.reject;
+    await tapTimes(controller, malaSize);
+    await pumpUntil(
+      () =>
+          controller.state.sessionId != firstSessionId &&
+          controller.state.dailyTotal == 0,
+    );
+
+    // The rejected mala never happened as far as the ring or the daily
+    // total are concerned — both read back to zero, not "1 round done".
+    // Before this fix, cumulativeBase carried the rejected 108 forward
+    // regardless, so the ring kept showing progress the daily total had
+    // already excluded — this is the exact mismatch a real rejection
+    // (accidental rapid taps tripping the anti-cheat rate limit) produced.
+    expect(controller.cumulativeBase, 0);
+    expect(controller.state.roundsCompleted, 0);
+    expect(controller.state.tapsInRound, 0);
+
+    // Tapping again starts a genuinely fresh round, not "round 2" —
+    // proves the correction actually took rather than just a stale zero.
+    fakeApi.outcome = _FakeOutcome.accept;
+    await controller.tap();
+    await pumpUntil(() => controller.state.tapsInRound == 1);
+    expect(controller.state.roundsCompleted, 0);
   });
 
   test(

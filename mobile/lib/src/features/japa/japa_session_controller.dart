@@ -225,15 +225,16 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
   /// between two calls could step past without ever landing exactly on).
   int _lastCumulative = 0;
 
-  /// Taps from every row this screen visit has already rotated past (mala
-  /// completions, connectivity-triggered flushes) — added to the current
-  /// row's own tap count to get a total that climbs continuously across
-  /// rotations, since the Isar row itself resets to empty each time
-  /// (_flushCurrentAndRotate always starts the replacement fresh). Carried
-  /// forward regardless of whether a rotated batch synced or was rejected
-  /// — this tracks taps physically made this visit, not confirmed-synced
-  /// taps (that distinction is what the daily total, which does exclude
-  /// rejected batches, is for).
+  /// Taps from every *synced* row this screen visit has already rotated
+  /// past (mala completions, connectivity-triggered flushes) — added to
+  /// the current row's own tap count to get a total that climbs
+  /// continuously across rotations, since the Isar row itself resets to
+  /// empty each time (_flushCurrentAndRotate always starts the
+  /// replacement fresh). A rejected batch is deliberately *not* carried
+  /// in here — it never happened as far as the ring/round display is
+  /// concerned, matching the daily total (which also excludes it via
+  /// adjustDailyTotal). A batch still queued (offline, no auth yet) stays
+  /// out of both until it actually resolves one way or the other.
   int _cumulativeBase = 0;
 
   /// Exposed so a caller starting a screen-off session (japa_screen.dart)
@@ -255,6 +256,10 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
   StreamSubscription<LocalJapaSession?>? _sessionWatchSub;
   StreamSubscription<DailyJapaTotal?>? _dailyTotalWatchSub;
   Timer? _midnightTimer;
+
+  /// True for the span of [_flushCurrentAndRotate]'s own flush attempt —
+  /// see [_watchSession]'s doc for exactly what race this closes.
+  bool _rotating = false;
 
   // Serializes every flush-triggering path (init-time pending sync,
   // connectivity restored, mala completion, screen close) onto the current
@@ -288,6 +293,15 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
       sessionId = info.sessionId;
       _cumulativeBase = info.cumulativeBase;
     } else {
+      // The ring shows today's real progress, not just "since this app
+      // happens to have been opened" — seeding from anything else meant
+      // every reopen after an earlier session the same day showed a ring
+      // that had silently reset while "chants today" kept climbing, which
+      // reads as data loss even though nothing was actually lost. A fresh
+      // session's ring now picks up exactly where today's already-
+      // confirmed total left off.
+      final todayRow = await todayTotalRow(_isar);
+      _cumulativeBase = todayRow.totalTaps;
       final session = LocalJapaSession();
       await _isar.writeTxn(() => _isar.localJapaSessions.put(session));
       sessionId = session.id;
@@ -309,7 +323,7 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
     // online. Surface the result: if practice from a prior visit is still
     // stuck locally (e.g. no auth token was ever set), the screen should
     // say so immediately rather than queuing it invisibly forever.
-    unawaited(_syncPendingAndReportStatus(excludeId: sessionId));
+    unawaited(_syncPendingAndReportStatus());
 
     _connectivitySub = _connectivityChanges.listen((results) {
       if (results.any((r) => r != ConnectivityResult.none)) {
@@ -369,17 +383,41 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
         .watchObject(id, fireImmediately: false)
         .listen((session) {
       if (!mounted) return;
+      // A rotation we triggered ourselves (_flushCurrentAndRotate,
+      // _startFreshSession) always reassigns _sessionId and calls
+      // _watchSession again *before* deleting the old row — but that
+      // delete's own notification can still be in flight on this old
+      // subscription when it happens (cancel() above is unawaited, and
+      // even awaited, Isar's watch stream doesn't guarantee a cancelled
+      // subscription can't already have a pending event queued). Without
+      // this check, that stray "gone" notification for an id we've
+      // already rotated *away from* looks identical to the genuine
+      // "something else deleted our current session out from under us"
+      // case below, and self-heals into a spurious extra session that
+      // clobbers the real one — observed as taps silently going nowhere
+      // right after a rejected batch rotated the session.
+      if (id != _sessionId) return;
       if (session == null) {
-        // The row we were watching is gone. This isn't a rotation we
-        // triggered ourselves (those already create the replacement and
-        // re-subscribe before the old row is deleted) — it means some
-        // other flush of this same id completed out from under us, most
-        // plausibly a previous controller instance's dispose-time flush
-        // (fire-and-forget, so it can outlive that instance) finishing
-        // after this instance already adopted the same session on
-        // startup. Left unhandled, the ring stays stuck showing whatever
-        // it last displayed until something else forces a re-derivation
-        // (e.g. a full app restart) — self-heal immediately instead.
+        if (_rotating) {
+          // This id's own row is being deleted as part of a rotation
+          // this controller itself already has in flight
+          // (_flushCurrentAndRotate) — that rotation will reassign
+          // _sessionId and call _watchSession again once it knows the
+          // flush outcome. Self-healing here too would create a second,
+          // competing session before the real one exists, and the real
+          // rotation's later reassignment would then orphan whichever one
+          // actually received the next tap.
+          return;
+        }
+        // The row we were watching is gone, and it's still the row we
+        // think is current — genuinely another flush of this same id
+        // completed out from under us, most plausibly a previous
+        // controller instance's dispose-time flush (fire-and-forget, so
+        // it can outlive that instance) finishing after this instance
+        // already adopted the same session on startup. Left unhandled,
+        // the ring stays stuck showing whatever it last displayed until
+        // something else forces a re-derivation (e.g. a full app
+        // restart) — self-heal immediately instead.
         unawaited(_startFreshSession());
         return;
       }
@@ -411,11 +449,28 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
     });
   }
 
-  Future<void> _syncPendingAndReportStatus({required int excludeId}) async {
+  /// Deliberately takes no `excludeId` parameter — reads [_sessionId] live,
+  /// inside the closure `_serialized` eventually invokes, rather than a
+  /// value frozen at call time. This is `unawaited`-called from [_init]
+  /// well before it actually runs (queued behind whatever's already ahead
+  /// of it on [_flushChain]), and a live round completion can rotate
+  /// [_sessionId] to a brand new row in the meantime — a frozen id would
+  /// then exclude a session that's already gone, leaving the sweep free to
+  /// flush (and, for an empty row, delete) the session that's actually
+  /// current and still being tapped into.
+  Future<void> _syncPendingAndReportStatus() async {
     final result =
-        await _serialized(() => _sync.flushPending(excludeId: excludeId));
+        await _serialized(() => _sync.flushPending(excludeId: _sessionId));
     if (result.rejectedTaps > 0) {
       await adjustDailyTotal(_isar, -result.rejectedTaps);
+      // These leftover sessions' taps were already folded into
+      // _cumulativeBase's initial seed (today's confirmed total at
+      // _init) before this sweep ever ran — a rejection discovered here
+      // needs the exact same correction _flushCurrentAndRotate makes for
+      // a live rejection, or the ring would keep showing a total today's
+      // figure has already excluded.
+      _cumulativeBase -= result.rejectedTaps;
+      if (mounted) _applyTapTotal(_lastRowTotal, triggerFlushOnCompletion: false);
     }
     // This is exactly the login-time backlog-catch-up path — unconditional
     // since a queued batch from a prior visit reaching the server here is
@@ -432,9 +487,34 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
     final delay = _nextLocalMidnight().difference(DateTime.now()) +
         const Duration(seconds: 1);
     _midnightTimer = Timer(delay, () {
-      unawaited(_watchDailyTotal());
+      unawaited(_handleMidnightRollover());
       _scheduleMidnightRollover();
     });
+  }
+
+  /// The ring resets to zero for a new day too, not just the daily total
+  /// — otherwise leaving the screen open across midnight would have the
+  /// ring keep counting on top of yesterday's base forever, the exact
+  /// "ring vs. today's total" mismatch _cumulativeBase's seeding at
+  /// _init exists to prevent, just triggered by staying open instead of
+  /// reopening.
+  Future<void> _handleMidnightRollover() async {
+    final sessionIdBeforeFlush = _sessionId;
+    await _serialized(_flushCurrentAndRotate);
+    if (!mounted) return;
+    if (_sessionId != sessionIdBeforeFlush) {
+      // Rotated cleanly onto a genuinely empty row — today really does
+      // start at zero.
+      _cumulativeBase = 0;
+      _applyTapTotal(0, triggerFlushOnCompletion: false);
+    }
+    // If it didn't rotate (still offline/queued), yesterday's row and
+    // cumulative base are left exactly as they were rather than
+    // discarding taps that are still only sitting locally — the next
+    // successful flush (whenever connectivity returns) rotates normally,
+    // and ordinary daily-total re-derivation below still keeps the
+    // *displayed total* correct in the meantime either way.
+    await _watchDailyTotal();
   }
 
   Future<void> tap() async {
@@ -472,6 +552,17 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
     _applyTapTotal(_lastRowTotal, triggerFlushOnCompletion: false);
   }
 
+  /// Retries whatever's still queued locally now that an auth token exists
+  /// — called right after a successful sign-in partway through the first-run
+  /// flow (docs/ONBOARDING.md §7), since the mala chanted *before* that
+  /// account existed is otherwise just sitting in Isar waiting for the next
+  /// natural trigger (a connectivity change or the next mala completing),
+  /// which could be a while. A no-op before [_init] has set [_sessionId].
+  Future<void> retryPendingSync() {
+    if (_sessionId == null) return Future.value();
+    return _syncPendingAndReportStatus();
+  }
+
   /// Connectivity just came back while still on-screen: flush what's
   /// queued so far, then start a fresh local buffer for anything new —
   /// rotating (rather than reusing the just-flushed, now-deleted row)
@@ -483,29 +574,52 @@ class JapaSessionController extends StateNotifier<JapaSessionState> {
     if (session == null) return;
 
     final tapCount = session.taps.length;
-    final outcome = await _sync.flushSession(session);
-    if (mounted) {
-      state = state.copyWith(syncFailed: outcome == FlushOutcome.stillQueued);
-    }
-    if (outcome == FlushOutcome.rejected) {
-      await adjustDailyTotal(_isar, -tapCount);
-    }
-    if (outcome == FlushOutcome.synced) {
-      onSynced?.call();
-    }
-    if (outcome != FlushOutcome.stillQueued) {
-      // Carry the rotated row's count forward regardless of sync outcome —
-      // the ring/notification track taps physically made this visit, not
-      // confirmed-synced taps (adjustDailyTotal above is what excludes a
-      // rejected batch from the figure that does need to mean "confirmed").
-      _cumulativeBase += tapCount;
-      final fresh = LocalJapaSession();
-      await _isar.writeTxn(() => _isar.localJapaSessions.put(fresh));
-      if (!mounted) return;
-      _sessionId = fresh.id;
-      state = state.copyWith(sessionId: fresh.id);
-      _watchSession(fresh.id);
-      updateActiveSessionId?.call(fresh.id, _cumulativeBase);
+    // Stays true for this whole function, not just the flushSession call
+    // below — the delete it can trigger doesn't necessarily notify this
+    // controller's watcher strictly within that one await; it can land on
+    // a later microtask, any time up until _watchSession is pointed
+    // elsewhere further down. Clearing the flag too early left exactly
+    // that gap open.
+    _rotating = true;
+    try {
+      final outcome = await _sync.flushSession(session);
+      if (mounted) {
+        state =
+            state.copyWith(syncFailed: outcome == FlushOutcome.stillQueued);
+      }
+      if (outcome == FlushOutcome.rejected) {
+        await adjustDailyTotal(_isar, -tapCount);
+      }
+      if (outcome == FlushOutcome.synced) {
+        onSynced?.call();
+      }
+      if (outcome != FlushOutcome.stillQueued) {
+        // A rejected batch never happened as far as the ring/round display
+        // is concerned either — carrying it into _cumulativeBase anyway
+        // used to leave the ring showing rounds/beads that today's total
+        // (correctly, via adjustDailyTotal above) didn't count, with no
+        // visible explanation for the gap. Only a synced batch counts
+        // toward what the ring shows going forward.
+        if (outcome == FlushOutcome.synced) {
+          _cumulativeBase += tapCount;
+        }
+        final fresh = LocalJapaSession();
+        await _isar.writeTxn(() => _isar.localJapaSessions.put(fresh));
+        if (!mounted) return;
+        _sessionId = fresh.id;
+        state = state.copyWith(sessionId: fresh.id);
+        _watchSession(fresh.id);
+        updateActiveSessionId?.call(fresh.id, _cumulativeBase);
+        if (outcome == FlushOutcome.rejected) {
+          // The watcher on the fresh (empty) row won't fire on its own
+          // until the next tap — re-derive the ring/round display against
+          // the corrected cumulative right away instead of leaving it
+          // showing the pre-correction count until then.
+          _applyTapTotal(0, triggerFlushOnCompletion: false);
+        }
+      }
+    } finally {
+      _rotating = false;
     }
   }
 
