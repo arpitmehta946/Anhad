@@ -34,7 +34,11 @@ func main() {
 	}
 	defer st.Close()
 
-	srv := server.New(cfg, logger, st)
+	srv, err := server.New(cfg, logger, st)
+	if err != nil {
+		logger.Error("failed to build server", "error", err)
+		os.Exit(1)
+	}
 
 	go func() {
 		logger.Info("starting server", "addr", cfg.Addr, "env", cfg.Env)

@@ -1,3 +1,6 @@
 .env
 .DS_Store
 Thumbs.db
+
+# Local video-storage stub (docs/TECH_STACK.md §3, VIDEO_STORAGE_BACKEND=local)
+api/data/
