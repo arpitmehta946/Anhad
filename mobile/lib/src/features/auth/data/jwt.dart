@@ -29,3 +29,23 @@ DateTime? jwtExpiry(String token) {
     return null;
   }
 }
+
+/// Reads the `role` claim out of a JWT's payload — same "not verifying the
+/// signature, server already did" caveat as [jwtExpiry]. Used purely for
+/// UI decisions (showing the upload entry point to a creator); the actual
+/// enforcement is server-side (api/internal/server/reels.go's
+/// requireRole), so a stale or spoofed value here can only ever hide or
+/// show a button, never grant a real upload.
+String? jwtRole(String token) {
+  final parts = token.split('.');
+  if (parts.length != 3) return null;
+  try {
+    final payload = jsonDecode(
+      utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))),
+    );
+    final role = payload['role'];
+    return role is String ? role : null;
+  } catch (_) {
+    return null;
+  }
+}

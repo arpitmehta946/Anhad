@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'features/auth/auth_controller.dart';
-import 'features/auth/login_screen.dart';
-import 'features/feed/feed_screen.dart';
+import 'features/onboarding/onboarding_arrival_screen.dart';
 import 'theme/app_theme.dart';
+
+/// Lets a screen find out when another route is pushed on top of it (and
+/// when it comes back) — the feed screen uses this to pause reel video/
+/// audio the moment the japa screen (or anything else) covers it, rather
+/// than leaving a reel playing with sound behind a screen meant for
+/// eyes-closed, screen-off chanting.
+final routeObserver = RouteObserver<PageRoute<void>>();
 
 class AnhadApp extends StatelessWidget {
   const AnhadApp({super.key});
@@ -17,24 +21,14 @@ class AnhadApp extends StatelessWidget {
       theme: AppTheme.prabhat,
       darkTheme: AppTheme.dusk,
       themeMode: ThemeMode.dark,
-      home: const _AuthGate(),
+      navigatorObservers: [routeObserver],
+      // The sapta swara arrival screen (docs/FRONTEND_GUIDELINES.md §12)
+      // is shown on every open, not just a new user's first one — it
+      // decides where "Begin" actually leads (mid onboarding, straight
+      // into practice, or straight into the signed-in app) once it knows
+      // the auth/onboarding state, rather than this widget gating on it
+      // up front.
+      home: const OnboardingArrivalScreen(),
     );
-  }
-}
-
-/// Shows the login screen until there's a signed-in session, then the app
-/// itself — every screen behind this can assume it's talking to an
-/// authenticated user.
-class _AuthGate extends ConsumerWidget {
-  const _AuthGate();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(authControllerProvider);
-
-    if (state.checkingSession) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-    return state.isAuthenticated ? const FeedScreen() : const LoginScreen();
   }
 }

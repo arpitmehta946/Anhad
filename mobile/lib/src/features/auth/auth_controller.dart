@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:developer' as developer;
 import 'dart:io';
 
@@ -16,6 +17,7 @@ class AuthState {
     this.phoneNumber,
     this.isSubmitting = false,
     this.error,
+    this.role,
   });
 
   /// True until the stored-session check on app start resolves — the app
@@ -31,6 +33,15 @@ class AuthState {
   final bool isSubmitting;
   final String? error;
 
+  /// Decoded from the access token (data/jwt.dart's jwtRole) — a UI-only
+  /// signal for things like showing the upload entry point to a creator.
+  /// The real enforcement is server-side
+  /// (api/internal/server/reels.go's requireRole), so this being stale or
+  /// absent only ever hides a button early, never grants access late.
+  final String? role;
+
+  bool get isCreator => role == 'creator';
+
   AuthState copyWith({
     bool? checkingSession,
     bool? isAuthenticated,
@@ -39,6 +50,7 @@ class AuthState {
     bool? isSubmitting,
     String? error,
     bool clearError = false,
+    String? role,
   }) {
     return AuthState(
       checkingSession: checkingSession ?? this.checkingSession,
@@ -46,6 +58,7 @@ class AuthState {
       phoneNumber: clearPhoneNumber ? null : (phoneNumber ?? this.phoneNumber),
       isSubmitting: isSubmitting ?? this.isSubmitting,
       error: clearError ? null : (error ?? this.error),
+      role: role ?? this.role,
     );
   }
 }
@@ -57,18 +70,31 @@ class AuthState {
 /// bearer token through this rather than reading storage directly.
 class AuthController extends StateNotifier<AuthState> {
   AuthController(this._api, this._tokenStore) : super(const AuthState()) {
-    _restore();
+    _restoreCompleter.complete(_restore());
   }
 
   final AuthApiClient _api;
+
+  final _restoreCompleter = Completer<void>();
+
+  /// Resolves once the stored-session check on app start has actually
+  /// finished — [state.isAuthenticated] reads as its default `false`
+  /// until then, not as "genuinely signed out." A caller that routes on
+  /// [state.isAuthenticated] before this resolves (the arrival screen's
+  /// "Begin" handler used to) can catch that default and send a signed-in
+  /// returning user down the wrong path — observed as landing on the japa
+  /// screen instead of the feed right after a fresh app open.
+  Future<void> get initialized => _restoreCompleter.future;
   final TokenStore _tokenStore;
 
   Future<void> _restore() async {
     final refreshToken = await _tokenStore.readRefreshToken();
+    final accessToken = await _tokenStore.readAccessToken();
     if (!mounted) return;
     state = state.copyWith(
       checkingSession: false,
       isAuthenticated: refreshToken != null,
+      role: accessToken != null ? jwtRole(accessToken) : null,
     );
   }
 
@@ -96,7 +122,11 @@ class AuthController extends StateNotifier<AuthState> {
         refreshToken: tokens.refreshToken,
       );
       if (!mounted) return;
-      state = state.copyWith(isSubmitting: false, isAuthenticated: true);
+      state = state.copyWith(
+        isSubmitting: false,
+        isAuthenticated: true,
+        role: jwtRole(tokens.accessToken),
+      );
     } catch (e, stackTrace) {
       if (!mounted) return;
       state = state.copyWith(isSubmitting: false, error: _describe(e, stackTrace));
@@ -139,6 +169,7 @@ class AuthController extends StateNotifier<AuthState> {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
       );
+      if (mounted) state = state.copyWith(role: jwtRole(tokens.accessToken));
       return tokens.accessToken;
     } catch (_) {
       // The refresh token is dead (expired, already used, or revoked) —
