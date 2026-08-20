@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
@@ -21,6 +22,7 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
 
     private val channelName = "com.anhad.anhad/japa_background"
+    private val saptaSwaraChannelName = "com.anhad.anhad/sapta_swara"
     private var methodChannel: MethodChannel? = null
     private var pendingNotificationPermissionResult: MethodChannel.Result? = null
     private val notificationPermissionRequestCode = 9001
@@ -142,6 +144,10 @@ class MainActivity : FlutterActivity() {
                     val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
                     result.success(pm.isIgnoringBatteryOptimizations(packageName))
                 }
+                "isRingerSilentOrVibrate" -> {
+                    val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                    result.success(audioManager.ringerMode != AudioManager.RINGER_MODE_NORMAL)
+                }
                 "isNotificationPermissionGranted" -> {
                     result.success(isNotificationPermissionGranted())
                 }
@@ -171,6 +177,19 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, saptaSwaraChannelName)
+            .setMethodCallHandler { call, result ->
+                if (call.method == "playTone") {
+                    val path = call.argument<String>("path")
+                    if (path != null) {
+                        SaptaSwaraPlayer.play(this, path)
+                    }
+                    result.success(null)
+                } else {
+                    result.notImplemented()
+                }
+            }
     }
 
     private fun isNotificationPermissionGranted(): Boolean {

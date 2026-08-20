@@ -6,11 +6,15 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../theme/colors.dart';
+import '../auth/auth_controller.dart';
+import '../onboarding/save_practice_screen.dart';
 import 'background/background_japa_controller.dart';
+import 'data/isar_provider.dart';
 import 'data/japa_preferences_store.dart';
 import 'japa_session_controller.dart';
 import 'japa_streak_controller.dart';
 import 'mala_ring_painter.dart';
+import 'reminder/sankalp_reminder_provider.dart';
 
 /// The japa (chant) counter screen (docs/FRONTEND_GUIDELINES.md §10): the
 /// Mala Ring dominates the screen, the numeric count is secondary, and
@@ -200,23 +204,81 @@ class _JapaScreenState extends ConsumerState<JapaScreen>
     await _toggleScreenOffSession(true);
   }
 
+  /// Pushes the sankalp reminder's single pending occurrence from today to
+  /// tomorrow whenever today's locked daily target is already met —
+  /// checked against whatever [dailyTotal] currently is, not just a live
+  /// crossing within this screen visit, since the target could just as
+  /// well have been met by a screen-off session, or before this screen
+  /// was even opened today. [rescheduleForTomorrow] is idempotent (it
+  /// just moves the one pending occurrence, again, to the same place), so
+  /// there's no harm in this running more than once for the same day.
+  Future<void> _checkSankalpTargetMet(int dailyTotal) async {
+    final isar = ref.read(isarProvider);
+    final reminder = await activeSankalpReminder(isar);
+    if (reminder == null || dailyTotal < reminder.dailyTarget) return;
+    if (!mounted) return;
+    await ref.read(sankalpReminderSchedulerProvider).rescheduleForTomorrow(
+          TimeOfDay(hour: reminder.reminderHour, minute: reminder.reminderMinute),
+        );
+  }
+
   @override
   Widget build(BuildContext context) {
+    ref.listen<JapaSessionState>(
+      japaSessionControllerProvider,
+      (previous, next) {
+        if (previous?.dailyTotal == next.dailyTotal) return;
+        unawaited(_checkSankalpTargetMet(next.dailyTotal));
+      },
+    );
     final state = ref.watch(japaSessionControllerProvider);
     final backgroundState = ref.watch(backgroundJapaControllerProvider);
     final streak = ref.watch(japaStreakProvider).valueOrNull;
+    final isAuthenticated = ref.watch(
+      authControllerProvider.select((s) => s.isAuthenticated),
+    );
     final reduceMotion = MediaQuery.of(context).disableAnimations;
     final theme = Theme.of(context);
 
     if (!_autoStartChecked && state.sessionId != null) {
       _autoStartChecked = true;
       unawaited(_autoStartIfPreferred());
+      // ref.listen above only reacts to dailyTotal *changing* — it won't
+      // see a target that was already met before this screen opened (a
+      // screen-off session, or an earlier visit today). One explicit
+      // check against whatever the state already is, gated the same way
+      // _autoStartIfPreferred is so it only runs once per screen visit.
+      unawaited(_checkSankalpTargetMet(state.dailyTotal));
     }
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Japa'),
         actions: [
+          // Unauthenticated gets the explanatory banner below instead of an
+          // icon-only action here — an icon alone didn't tell a returning,
+          // not-yet-signed-in user what it actually did.
+          //
+          // A signed-in user reaching this screen straight from onboarding
+          // (rather than via FeedScreen's own sign-out button) had no way
+          // back to one — this is that, regardless of how the screen was
+          // reached.
+          if (isAuthenticated)
+            IconButton(
+              icon: const Icon(Icons.logout),
+              tooltip: 'Sign out',
+              onPressed: () async {
+                await ref.read(authControllerProvider.notifier).logout();
+                // If this screen was reached by pushing on top of
+                // FeedScreen (the only way to see this button — it's
+                // authenticated-only), the root now wants to show a plain
+                // JapaScreen of its own; drop back to it instead of
+                // leaving a second, stale JapaScreen stacked underneath.
+                if (context.mounted) {
+                  Navigator.of(context).popUntil((route) => route.isFirst);
+                }
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.undo),
             tooltip: 'Undo last tap',
@@ -252,6 +314,19 @@ class _JapaScreenState extends ConsumerState<JapaScreen>
                   ).clamp(180.0, 380.0);
                   return Column(
                     children: [
+                      // Persists (no dismiss) for as long as the state it
+                      // describes is true, unlike the one-time headphone
+                      // hint below it — this isn't a one-off notice, it's
+                      // pointing at a real, ongoing "not saved yet" state,
+                      // and disappears on its own the moment that's fixed.
+                      if (!isAuthenticated)
+                        _SavePracticeBanner(
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const SavePracticeScreen(),
+                            ),
+                          ),
+                        ),
                       if (_showHeadphoneHint)
                         _HeadphoneHintBanner(onDismiss: _dismissHeadphoneHint),
                       Expanded(
@@ -402,6 +477,78 @@ class _JapaScreenState extends ConsumerState<JapaScreen>
                 },
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The unauthenticated-state notice — practice is real and counting
+/// locally, but nothing survives a reinstall or carries to another device
+/// until this is tapped (docs/ONBOARDING.md §7, docs/PRD.md §4.5). Replaces
+/// the earlier icon-only app bar action, which told a returning user
+/// nothing about what it actually did.
+class _SavePracticeBanner extends StatelessWidget {
+  const _SavePracticeBanner({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(16),
+          topRight: Radius.circular(16),
+          bottomLeft: Radius.circular(16),
+          bottomRight: Radius.circular(4),
+        ),
+        child: Container(
+          margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: const BoxDecoration(
+            color: AnhadColors.duskBgSurface,
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(16),
+              topRight: Radius.circular(16),
+              bottomLeft: Radius.circular(16),
+              bottomRight: Radius.circular(4),
+            ),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.cloud_upload_outlined,
+                  color: AnhadColors.accentDiya, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Save your practice',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: AnhadColors.duskTextPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      "So it's here tomorrow, and on any phone you sign "
+                      'in from.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: AnhadColors.duskTextSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right,
+                  color: AnhadColors.duskTextSecondary, size: 20),
+            ],
           ),
         ),
       ),

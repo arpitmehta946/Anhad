@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:isar_community/isar.dart';
@@ -18,6 +20,8 @@ import 'src/features/japa/data/daily_japa_total.dart';
 import 'src/features/japa/data/isar_provider.dart';
 import 'src/features/japa/data/japa_preferences.dart';
 import 'src/features/japa/data/local_japa_session.dart';
+import 'src/features/onboarding/sapta_swara_audio.dart';
+import 'src/features/onboarding/sapta_swara_audio_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,9 +32,21 @@ Future<void> main() async {
     directory: dir.path,
   );
 
+  // The sound is currently disabled (see onboarding_arrival_screen.dart's
+  // _checkMotionAndAudio doc) — nothing calls playSequence(), so there's
+  // nothing to preload right now. The provider is still overridden below
+  // so the app doesn't crash if anything unexpectedly reads it, but the
+  // actual preload() kick-off is commented out rather than doing
+  // synthesis work every app open for a sound nobody hears.
+  final saptaSwaraAudio = SaptaSwaraAudio();
+  // unawaited(saptaSwaraAudio.preload());
+
   runApp(
     ProviderScope(
-      overrides: [isarProvider.overrideWithValue(isar)],
+      overrides: [
+        isarProvider.overrideWithValue(isar),
+        saptaSwaraAudioProvider.overrideWithValue(saptaSwaraAudio),
+      ],
       child: const AnhadApp(),
     ),
   );

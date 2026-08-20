@@ -12,6 +12,10 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // flutter_local_notifications (the sankalp reminder, docs/PRD.md
+        // §7.7) requires core library desugaring — it uses java.time APIs
+        // that need backporting below API 26.
+        isCoreLibraryDesugaringEnabled = true
     }
 
     defaultConfig {
@@ -52,4 +56,6 @@ dependencies {
     // MediaSessionCompat + VolumeProviderCompat — the screen-off volume-key
     // capture mechanism in JapaForegroundService (docs/PRD.md §7.4).
     implementation("androidx.media:media:1.7.0")
+    // Required by isCoreLibraryDesugaringEnabled above.
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
