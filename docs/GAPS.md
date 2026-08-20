@@ -1,8 +1,8 @@
 # Open Gaps & Backlog
 
 **Companion to:** all other docs — this is the punch list, not a design spec
-**Version:** 0.4 — living document, expected to grow
-**Date:** August 19, 2026
+**Version:** 0.5 — living document, expected to grow
+**Date:** August 20, 2026
 
 This file exists because a fast-moving build (which this has been) is exactly how real gaps get missed until they're expensive. Nothing here is designed in depth — that's what `PRD.md`, `TECH_STACK.md`, and `USER_FLOWS.md` are for. This is just: **what don't we have an answer for yet.** Add to it whenever something new comes up; check items off as they get a real decision, not just a mention.
 
@@ -47,6 +47,11 @@ These surfaced *while writing up* the decisions in `PRD.md` §4.1–4.5 and §10
 - [ ] 🔴 **No explainer for the renamed interactions.** A first-time user seeing "Pranam" with a folded-hands icon and no context is a real confusion risk — directly contradicts the "easy to use" goal.
 - [ ] 🟡 Language/tradition preference capture — not yet decided whether this happens before or after first content view.
 
+## Sankalp & daily practice
+
+- [ ] 🟡 **No minimum daily target floor.** The daily target is entirely self-chosen and locked for the vow (`PRD.md` §10.3) — nothing stops someone setting it to 1 chant/day and earning the 41-day Seva Pass trial on effectively no practice. Needs a decision: a floor (e.g. can't set below some fraction of a mala), or accept it as the honest cost of "you set your own target" and let the trial's own cost (a free week, not real money) absorb the risk.
+- [ ] 🟢 **A second, concurrent, non-japa sankalp is a deliberate future build, not an oversight.** Someone vowing a daily Hanuman Chalisa or stuti recitation alongside (or instead of) japa needs a genuinely different counting model — a Chalisa is one completion, not 108 taps, so the bead-ring mechanic doesn't apply. Flagged here so it isn't quietly assumed to be "the same feature, different content" when it's actually built.
+
 ## Trust & safety
 
 - [ ] 🔴 **No in-app reporting mechanism, and no `reports` table.** Required by IT Rules 2021, not optional polish (`PRD.md` §3.4). Still the highest-priority unbuilt safety item.
@@ -65,8 +70,9 @@ These surfaced *while writing up* the decisions in `PRD.md` §4.1–4.5 and §10
 
 ## Notifications
 
-- [ ] 🔴 **Push notification infrastructure isn't chosen.** `TECH_STACK.md` never picked FCM/APNs or a delivery service — this is a real backend gap, not just a UI one.
-- [ ] 🟡 What actually *triggers* a notification isn't defined (daily practice reminder, new Satsang reply, streak-at-risk) — needs its own short spec once the infra is picked, and needs to be checked against the anti-pattern list in `FRONTEND_GUIDELINES.md` §8 before anything ships.
+- [x] **Daily practice reminder — resolved and built.** Local, on-device notification (`flutter_local_notifications`), not push — the phone already knows the time and today's progress, so no server round-trip or delivery infra is needed for this one. Set when a sankalp is taken, fires only if that day's target isn't met, at most once a day, non-guilt copy (`FRONTEND_GUIDELINES.md` §8).
+- [ ] 🔴 **Push notification infrastructure (FCM/APNs) still isn't chosen — needed for platform-originated events, not practice reminders.** Diya received, a reel approved, a followed creator posted — anything that happens server-side and needs to reach a phone that isn't currently open. `TECH_STACK.md` never picked a provider or delivery service; real backend gap, not just a UI one.
+- [ ] 🟡 What triggers a *push* notification specifically (new Satsang reply, a followed creator's upload) isn't defined — needs its own short spec once the infra above is picked, and needs to be checked against the anti-pattern list in `FRONTEND_GUIDELINES.md` §8 before anything ships. Never a streak-at-risk trigger — that's exactly the guilt pattern the sankalp reframing exists to avoid.
 
 ## Content lifecycle
 

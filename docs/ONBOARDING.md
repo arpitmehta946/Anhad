@@ -1,8 +1,8 @@
 # Onboarding & The Returning Experience
 
 **Companion to:** `USER_FLOWS.md`, `FRONTEND_GUIDELINES.md`, `PRD.md`
-**Version:** 0.1 — research findings + recommended flow
-**Date:** August 18, 2026
+**Version:** 0.2 — research findings + recommended flow
+**Date:** August 20, 2026
 
 This supersedes the open question in `USER_FLOWS.md` for the **japa** side of the app specifically (the feed's onboarding is still open, since no feed exists yet). It is grounded in a scan of ~15 competing japa/mala counter apps on Google Play and the App Store, and in what their actual users complain about in reviews.
 
@@ -50,7 +50,7 @@ Items 1–3 are small and directly affect the core loop. Items 5–6 are persona
 
 This is the strongest finding in the research, and it reframes a feature Anhad has already built.
 
-**Anushthan** is a vowed, systematic spiritual undertaking: a predetermined total of mantras, divided into daily portions, chanted without break across a fixed number of days — commonly **11, 21, or 36**. The vow kept faithfully each day is precisely what distinguishes it from ordinary worship. **Sankalp** is the vow itself — stating your name, your intention, and what you undertake, before you begin. As one practitioner's phrasing has it: a ritual without sankalp is like an arrow without a target.
+**Anushthan** is a vowed, systematic spiritual undertaking: a predetermined total of mantras, divided into daily portions, chanted without break across a fixed number of days — commonly **11, 21, or 41** (41-day *mandala* and Chalisa observances are an established length in the tradition; an earlier draft of this document used 36, which isn't). The vow kept faithfully each day is precisely what distinguishes it from ordinary worship. **Sankalp** is the vow itself — stating your name, your intention, and what you undertake, before you begin. As one practitioner's phrasing has it: a ritual without sankalp is like an arrow without a target.
 
 **Anhad already built a 21-day streak with a reward at completion** (`PRD.md` §7.4, §10.3). That structure is not merely *similar* to an anushthan — it is one. But it's currently framed in the borrowed vocabulary of habit-tracking apps.
 
@@ -60,7 +60,9 @@ Reframing the streak as a **Sankalp** does three things at once:
 2. **It solves the anti-pattern problem in `FRONTEND_GUIDELINES.md` §8.** The guidelines forbid streak-loss guilt language. Sankalp gives a genuinely better frame: a vow that lapses isn't a punishment or a lost score — it's simply renewed. "Begin a new sankalp" is honest, non-manipulative, and traditionally accurate.
 3. **It's the differentiator no competitor has.** Every app has streaks. None frame practice as a vow with an intention attached to it.
 
-**Design implication:** offer 11 / 21 / 36-day sankalp lengths (the traditional options), let the user optionally state an intention when taking one, and show that intention when they return. Someone who wrote *"for my mother's health"* on day one and sees it on day fourteen is having an experience no habit-tracker can replicate.
+**Design implication:** offer 11 / 21 / 41-day sankalp lengths (the traditional options), let the user optionally state an intention when taking one, and show that intention when they return. Someone who wrote *"for my mother's health"* on day one and sees it on day fourteen is having an experience no habit-tracker can replicate. The intention is theirs alone — always private, never shown on a profile or to anyone else (`PRD.md` §10.3).
+
+**Resolved, `PRD.md` §10.3:** the daily target is set once, when the vow is taken, and locked for its full duration — a day counts only if that target is met. Rewards scale with length: 11 days is encouragement only, 21 earns a badge, 41 unlocks the 7-day Seva Pass trial. Breaking a sankalp restarts the streak from day one; the lifetime chant count is never lost. On completing a sankalp, the user chooses whether the next one keeps the same daily target or raises it — never lowered, never automatic.
 
 ---
 
@@ -90,7 +92,7 @@ Four screens. No account required to reach the chanting.
 │  "You've completed one mala.                              │
 │   Would you like to take a sankalp?"                      │
 │                                                            │
-│  [11 days] [21 days] [36 days]  ·  [Not now]              │
+│  [11 days] [21 days] [41 days]  ·  [Not now]              │
 │  Optional, one line: "What is this practice for?"         │
 │                                                            │
 │  "Not now" is a real option, not a dark pattern —         │
@@ -139,10 +141,11 @@ First-run happens once. The other 364 days are what actually determine whether s
 
 1. **Completion bell + haptic on mala completion** — smallest change, biggest experiential gain, and required for eyes-closed practice
 2. **Undo, custom mala length (27/54/108/1008), lifetime total** — table stakes, all small
-3. **Sankalp reframing** — rename the existing streak feature, add 11/21/36 options and the optional intention field
+3. **Sankalp reframing** — rename the existing streak feature, add 11/21/41 options and the optional intention field
 4. **First-run flow** — the four screens above
 5. **Returning-experience polish** — time-aware line, sankalp-first display, lapse copy
-6. **Later:** deity image, mantra text display, history charts, focus mode
+6. **Daily practice reminder** — local notification at a user-chosen time, set when a sankalp is taken (`PRD.md` §7.7)
+7. **Later:** deity image, mantra text display, history charts, focus mode
 
 Items 1 and 2 are worth doing before the first-run flow, since the first run *depends* on the completion bell landing well.
 
@@ -151,7 +154,7 @@ Items 1 and 2 are worth doing before the first-run flow, since the first run *de
 ## 6. Still open
 
 - **Feed onboarding** remains undecided (`USER_FLOWS.md`) — it can't be settled until the feed exists.
-- **Sankalp ↔ Seva Pass interaction:** `PRD.md` §10.3 grants a 7-day trial at 21 days. Does completing a *sankalp* grant it, and do 11- and 36-day sankalps grant anything different? Needs a decision before implementation.
+- ~~**Sankalp ↔ Seva Pass interaction**~~ — ✅ **resolved August 20, 2026** (`PRD.md` §10.3). 11 days is encouragement only, 21 earns a badge, 41 grants the 7-day Seva Pass trial.
 - ~~**Tradition scope**~~ — ✅ **resolved August 18, 2026** (`PRD.md` §4.4). Content scope is Sanatan/Hindu, all sampradayas served, seeded Hindi/Sanskrit/North-Indian first. Sankalp vocabulary is therefore correct as written and needs no hedging — it is native to the tradition the platform serves, not a borrowed term requiring translation for other faiths.
 
 ## 7. Onboarding implications of the August 18 scope decisions

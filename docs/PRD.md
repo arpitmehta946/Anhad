@@ -3,7 +3,7 @@
 **Product (working codename):** Anhad
 **Tagline:** A sanctuary for bhajans, mantras & stutis.
 **Version:** 0.1 (Concept → Pre-MVP)
-**Date:** August 16, 2026
+**Date:** August 20, 2026
 **Status:** Draft for founder review — see [Open Decisions](#12-open-decisions) before build starts
 
 > **On the name.** "Anhad" comes from *anhad naad* — the "unstruck sound," a concept shared across Nada Yoga, Sant Kabir's poetry, and Sikh Gurbani, describing the divine vibration heard within rather than produced by striking an instrument. It's used here as a working codename, not a final brand. Do **not** name the product "Bhakti" or any Bhakti-prefixed variant — see [§4.3](#43-naming-collision-warning).
@@ -218,7 +218,7 @@ Priority key: **P0** = required for MVP launch · **P1** = fast-follow within ~3
 - **P0** — Screen-off-capable tap counter using hardware volume-key interception, so a phone can stay pocketed during chanting. Local-first (works offline), batched sync to the server.
 - **P0** — Default target: 1 mala (108 chants)/day. Do **not** implement escalating daily targets (100 → 200 → 300) — see the rationale in the founder conversation this PRD is based on; escalating targets increase burnout and streak-breaking, which is the opposite of the intended habit loop.
 - **P0** — Basic anti-cheat: reject sessions where inter-tap timing is suspiciously uniform (real human taps vary ~350–800ms) or where tap rate exceeds ~200/minute (a full mala done in well under a minute is still normal for fast chanting — measured against real usage, not a guess).
-- **P1** — Streak tracking (current + longest), with a 21-day streak unlocking a **7-day** temporary Seva Pass trial (not a permanent unlock — see [§10.3](#103-the-streak-reward-must-be-temporary)).
+- **P1** — Sankalp tracking (current + longest): 11/21/41-day vow lengths, each with its own daily target the user sets when taking the vow and which is locked for its duration — a day counts toward the vow only if that target is met. Rewards scale with length: 11 days is encouragement only, 21 days earns a badge, 41 days unlocks a **7-day** temporary Seva Pass trial (not a permanent unlock — see [§10.3](#103-the-streak-reward-must-be-temporary)). Breaking a vow restarts the streak from day one; the lifetime chant count is never lost.
 - **P1** — "Sankalp Raksha" (streak repair) — a small paid option to restore a single missed day, ₹19.
 - **P2** — Community/circle leaderboards ranked purely by verified chant count, never by payment status.
 
@@ -238,7 +238,7 @@ See full detail in [§10](#10-monetization-model).
 
 ### 7.7 Notifications
 - **P0** — Minimal by default: no red pulsing badges, no "someone liked your post" spam. Notification copy and visual treatment specified in `FRONTEND_GUIDELINES.md`.
-- **P1** — Optional daily practice reminder at a user-chosen time.
+- **P1** — Daily practice reminder, set when a sankalp is taken (never preset) — a local, on-device notification (`flutter_local_notifications`), not push/FCM, since the phone already knows the time and today's progress and no server round-trip is needed. Fires only if that day's target isn't yet met, at most once a day, with non-guilt copy ("Your practice is waiting," never "Don't lose your streak" — `FRONTEND_GUIDELINES.md` §8).
 
 ### 7.8 Trust, safety & admin tooling
 - **P0** — Moderation queue UI for the community-moderator tier described in [§8.4](#84-community-led-moderation).
@@ -391,7 +391,21 @@ This removes a whole tier of eligibility logic, an enum, and a category of judge
 
 ### 10.3 The streak reward must be temporary
 
-Giving a **permanent** free Seva Pass for completing a 21-day chanting streak destroys the subscription funnel — once earned, that user has no further reason to ever pay. The reward must be a **7-day trial**, functioning as a zero-cost customer-acquisition mechanism: the user experiences background playback and offline audio, the trial expires, and they choose between resubscribing, doing another 21-day streak, or reverting to the free tier. All three outcomes are fine for the platform; a permanent giveaway is the only bad outcome.
+Giving a **permanent** free Seva Pass for completing a sankalp destroys the subscription funnel — once earned, that user has no further reason to ever pay. The reward must be a **7-day trial**, functioning as a zero-cost customer-acquisition mechanism: the user experiences background playback and offline audio, the trial expires, and they choose between resubscribing, taking another sankalp, or reverting to the free tier. All three outcomes are fine for the platform; a permanent giveaway is the only bad outcome.
+
+**Reward tiers by sankalp length** (`ONBOARDING.md` §2 offers 11/21/41-day vows — 41 replaces the earlier 36-day option floated in an early draft, since the 40/41-day mandala and Chalisa traditions are more established lengths than 36):
+
+| Length | Reward |
+|---|---|
+| 11 days | Encouragement only — no unlock |
+| 21 days | A badge |
+| 41 days | The **7-day** temporary Seva Pass trial |
+
+**The daily target is set once, at the moment the vow is taken, and locked for its full duration** — it cannot be changed mid-sankalp, which is what keeps "did today count" an unambiguous yes/no rather than a moving target. A day counts toward the vow only if that self-chosen target is met that day. On completing a sankalp, the user is asked whether to continue at the same daily target or raise it for the next one — never lowered, and never escalated automatically by the app (this doesn't reopen the escalating-target rejection in [§7.4](#74-japa--chant-tracker): the escalation rejected there was auto-imposed on the user; this is a choice the user makes for themselves at a natural vow boundary).
+
+**Breaking a sankalp restarts the streak from day one — the lifetime chant count is never reduced or reset.** The count already earned stays exactly as real as it was; only the *streak*, not the *practice*, resets.
+
+**The stated intention is always private — never shown on a profile or to any other user.** It resurfaces only to the person who wrote it (`ONBOARDING.md` §4), the same way a personal journal would, not as a social/profile feature.
 
 Streak-based rewards should never gate *spiritual* progress (badges, milestones, leaderboard rank) behind payment — only *convenience* features (lock-screen playback, offline downloads, ambient pacing tracks) are ever paywalled. This preserves the "you cannot buy devotion" principle the founder conversation correctly insisted on.
 

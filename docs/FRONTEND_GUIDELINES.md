@@ -1,8 +1,8 @@
 # Frontend & Design Guidelines
 
 **Companion to:** `PRD.md`, `TECH_STACK.md`
-**Version:** 0.1
-**Date:** August 16, 2026
+**Version:** 0.2
+**Date:** August 20, 2026
 
 ## 1. The brief, stated plainly
 
@@ -75,6 +75,8 @@ A circular ring of small beads — visually a japa mala — used as:
 
 Reusing this one shape everywhere a generic app would use three different unrelated UI patterns (a progress bar, a streak calendar grid, a spinner) is what makes the app feel *made for this*, rather than assembled from a component library.
 
+The arrival screen's Sapta Swara sequence (§12) resolves into this exact ring when the user taps "Begin" — a second signature element that ends by becoming the first one, not a competing visual language.
+
 ---
 
 ## 6. Motion
@@ -140,3 +142,37 @@ This list exists because every one of these is a default pattern in mainstream s
 - Text scales with system font-size settings without breaking layout; this matters more than usual here given the likely age range of some users (the existing competitor research in `PRD.md` §3.3 repeatedly notes "simple interface for elders" as a valued feature).
 - Reduced-motion setting disables the Mala Ring's pulse animation and any autoplay transitions, substituting an instant state change.
 - Multi-script text (Devanagari + Latin mixed in captions or bios) renders correctly without clipping or reflow bugs — test this explicitly, it's a common failure point.
+
+---
+
+## 12. Signature element: Sapta Swara
+
+The arrival screen (`ONBOARDING.md` §3, screen 1) needed its own visual, and the obvious default — a devotee figure bowing, praying, or dancing — was deliberately rejected: every devotional app already has one. What's actually distinctive to Anhad is the idea underneath the name itself.
+
+**The concept.** *Sapta swara* — the seven notes (Sa Re Ga Ma Pa Dha Ni) every bhajan, kirtan, and mantra melody is built from. Not a japa-specific idea like the Mala Ring; this is the app's melodic alphabet, arising on its own. Seven thin rings expand outward from seven points on the screen, one per swara, in ascending scale order — each a single voice; where two overlap, they brighten together rather than merge into a mass (`BlendMode.screen`, not simple alpha) — sangat, many voices as one.
+
+**No source object.** No hand, bell, striker, or figure anywhere in the scene. "Anhad" names *anahata nada* — the unstruck sound, produced by nothing striking anything. The rings simply arise; nothing causes them.
+
+**Layout.** Positions run bottom-to-top, scattered rather than gridded, following the Sangita Ratnakara's description of nada rising through the body — navel, heart, throat, tongue, nose, teeth, lips:
+
+| Swara | Position (x, y) | Color | Ratio to Sa |
+|---|---|---|---|
+| Sa | 50%, 84% | `#E8A33D` (gold) | 1/1 |
+| Re | 26%, 73% | `#D4826B` | 9/8 |
+| Ga | 72%, 62% | `#C1739A` | 5/4 |
+| Ma | 32%, 48% | `#8E86C6` | 4/3 |
+| Pa | 64%, 36% | `#F2C46B` (gold) | 3/2 |
+| Dha | 36%, 24% | `#7FA88C` | 5/3 |
+| Ni | 60%, 13% | `#6FA0B8` | 15/8 |
+
+Sa and Pa are both gold — they're the *achala* (fixed) swaras every raga returns to, regardless of which raga is being sung; the other five each get their own warm, desaturated hue. Not a chakra-rainbow palette — that's the New Age cliché this whole system exists to avoid (§2).
+
+**Motion.** Each ring runs an independent 6.4s cycle — 18px start diameter expanding to ~4.6× via `cubic-bezier(.17,.62,.31,1)`, opacity rising to 0.8 by 9% through the cycle, fading to 0.26 by 55%, gone by 100% — offset from the others by 0.9s per swara in scale order. Because every ring shares the same period, that stagger holds forever, not just on first paint: the sequence keeps arising continuously for as long as someone stays on the screen. Center stage is the Mala Ring itself (§5) at 120px, breathing gold rather than showing tap progress, with a soft radial glow behind it swelling on the same 5.2s cycle as the ring — "one motion language across the app" (§6), not a second rhythm competing with the first.
+
+**Sound.** The seven tones play every time this screen is shown — this is the arrival screen for every app open, not a first-run-only moment (see "Always shown" below). Just intonation relative to Sa (136.1 Hz: Sa 1/1, Re 9/8, Ga 5/4, Ma 4/3, Pa 3/2, Dha 5/3, Ni 15/8), not equal temperament — this is what makes it sound Indian rather than like a piano. Pitched an octave below where this started (272.2 Hz) — at the higher octave the tone read as bright and harsh rather than melodious, and dropping it a full octave kept even the upper harmonics of Ni, the highest swara, in a warm range. A soft, rounded timbre (fundamental plus two gentle overtones, deliberately not a bright buzz) with a gentle sine-eased attack and a long decay lets the notes overlap and ring together instead of sounding staccato, each firing exactly as its ring begins expanding. Synthesized on-device (Dart) rather than shipped as audio assets. Unlike the completion bell (`ONBOARDING.md` §5 item 1), this plays on the phone's built-in speaker specifically — forced there natively regardless of a connected Bluetooth device (`SaptaSwaraPlayer.kt`), since it's meant to be heard right away rather than silently landing on a paired speaker or earbuds nobody has in yet — but it still respects the device's silent/vibrate switch, animating without sound if silenced.
+
+**Resolution.** Tapping "Begin" doesn't cut to the next screen — the ripples settle inward and resolve into the Mala Ring, the same circle carried forward into the japa counter itself. Two signature elements, not two visual languages. Where "Begin" then leads depends on how far along the person already is (still mid first-run flow, done with it but signed out, or fully signed in) — this screen only handles the arrival moment, not the branching after it.
+
+**Always shown.** Unlike the rest of the first-run flow (screens 2–4, which are genuinely one-time), this screen is the app's arrival moment on *every* open, not gated behind a "seen it once" flag. A returning, already-onboarded user sees the same seven rings and hears the same seven notes each time, then "Begin" takes them straight into practice or the signed-in app rather than back through onboarding.
+
+**Reduced motion.** Rings render static at varied scales (not one frozen frame — still seven distinct sizes) and flat 0.3 opacity; the center ring and glow hold at fixed opacity with no breathing; no sound plays.
