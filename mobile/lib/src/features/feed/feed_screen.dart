@@ -8,6 +8,8 @@ import '../../app.dart' show routeObserver;
 import '../../theme/colors.dart';
 import '../auth/auth_controller.dart';
 import '../japa/japa_screen.dart';
+import '../moderation/moderation_queue_screen.dart';
+import '../moderation/report_reel_sheet.dart';
 import '../onboarding/save_practice_screen.dart';
 import 'data/reel.dart';
 import 'data/reel_category.dart';
@@ -148,6 +150,9 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with RouteAware {
     final isCreator = ref.watch(
       authControllerProvider.select((s) => s.isCreator),
     );
+    final isModerator = ref.watch(
+      authControllerProvider.select((s) => s.isModerator),
+    );
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -159,6 +164,14 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with RouteAware {
               icon: const Icon(Icons.add_box_outlined),
               tooltip: 'Upload',
               onPressed: _openUpload,
+            ),
+          if (isModerator)
+            IconButton(
+              icon: const Icon(Icons.shield_outlined),
+              tooltip: 'Moderation queue',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const ModerationQueueScreen()),
+              ),
             ),
           IconButton(
             icon: const Icon(Icons.self_improvement),
@@ -230,6 +243,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with RouteAware {
           isActive: index == _currentIndex && _routeVisible,
           muted: _muted,
           onToggleMute: () => setState(() => _muted = !_muted),
+          onReport: () => showReportReelSheet(context, ref, reel.id),
         );
       },
     );
@@ -306,12 +320,14 @@ class _ReelPage extends StatefulWidget {
     required this.isActive,
     required this.muted,
     required this.onToggleMute,
+    required this.onReport,
   });
 
   final Reel reel;
   final bool isActive;
   final bool muted;
   final VoidCallback onToggleMute;
+  final VoidCallback onReport;
 
   @override
   State<_ReelPage> createState() => _ReelPageState();
@@ -428,6 +444,11 @@ class _ReelPageState extends State<_ReelPage> {
           ),
           Positioned(
             right: 12,
+            bottom: 76,
+            child: _ReportButton(onTap: widget.onReport),
+          ),
+          Positioned(
+            right: 12,
             bottom: 20,
             child: _MuteButton(muted: widget.muted, onTap: widget.onToggleMute),
           ),
@@ -458,6 +479,28 @@ class _MuteButton extends StatelessWidget {
             color: Colors.white,
             size: 22,
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReportButton extends StatelessWidget {
+  const _ReportButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.black45,
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: const Padding(
+          padding: EdgeInsets.all(10),
+          child: Icon(Icons.flag_outlined, color: Colors.white, size: 22),
         ),
       ),
     );

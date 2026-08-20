@@ -70,6 +70,7 @@ func verifyOTPHandler(logger *slog.Logger, authSvc *auth.Service) http.HandlerFu
 					"id":           user.ID,
 					"phone_number": user.PhoneNumber,
 					"role":         user.Role,
+					"is_moderator": user.IsModerator,
 				},
 			})
 		case errors.Is(err, auth.ErrOTPInvalid):
@@ -126,6 +127,7 @@ func meHandler() http.HandlerFunc {
 			"id":           claims.Subject,
 			"phone_number": claims.Phone,
 			"role":         claims.Role,
+			"is_moderator": claims.IsModerator,
 		})
 	}
 }

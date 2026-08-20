@@ -10,6 +10,7 @@ import (
 	"github.com/anhad/api/internal/auth"
 	"github.com/anhad/api/internal/config"
 	"github.com/anhad/api/internal/japa"
+	"github.com/anhad/api/internal/moderation"
 	"github.com/anhad/api/internal/reels"
 	"github.com/anhad/api/internal/store"
 )
@@ -45,6 +46,7 @@ func New(cfg *config.Config, logger *slog.Logger, st *store.Store) (*http.Server
 		return nil, fmt.Errorf("VIDEO_STORAGE_BACKEND=cloudflare is not implemented yet")
 	}
 	reelsSvc := reels.NewService(st, videoStorage)
+	moderationSvc := moderation.NewService(st)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthHandler(logger, st))
@@ -61,6 +63,17 @@ func New(cfg *config.Config, logger *slog.Logger, st *store.Store) (*http.Server
 		requireAuth(authSvc)(requireRole("creator")(createReelHandler(logger, reelsSvc))))
 	// Deliberately outside requireAuth — see listFeedHandler's doc.
 	mux.HandleFunc("GET /v1/reels", listFeedHandler(logger, reelsSvc))
+
+	mux.Handle("POST /v1/reels/{id}/reports",
+		requireAuth(authSvc)(submitReportHandler(logger, moderationSvc)))
+	mux.Handle("GET /v1/moderation/reports",
+		requireAuth(authSvc)(requireModerator(listModerationQueueHandler(logger, moderationSvc))))
+	mux.Handle("POST /v1/moderation/reports/{id}/dismiss",
+		requireAuth(authSvc)(requireModerator(dismissReportHandler(logger, moderationSvc))))
+	mux.Handle("POST /v1/moderation/reports/{id}/remove-reel",
+		requireAuth(authSvc)(requireModerator(removeReelHandler(logger, moderationSvc))))
+	mux.Handle("GET /v1/moderation/audit-log",
+		requireAuth(authSvc)(requireModerator(listAuditLogHandler(logger, moderationSvc))))
 
 	if localStorage != nil {
 		mux.HandleFunc("PUT /v1/reels/uploads/{id}/file", uploadLocalVideoHandler(logger, localStorage))

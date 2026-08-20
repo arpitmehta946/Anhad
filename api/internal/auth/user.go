@@ -10,6 +10,7 @@ type User struct {
 	ID          string
 	PhoneNumber string
 	Role        string
+	IsModerator bool
 	CreatedAt   time.Time
 }
 
@@ -29,7 +30,7 @@ func (s *Service) findOrCreateUser(ctx context.Context, phoneNumber string) (*Us
 		INSERT INTO users (phone_number, role)
 		VALUES ($1, $2)
 		ON CONFLICT (phone_number) DO UPDATE SET phone_number = EXCLUDED.phone_number
-		RETURNING id, phone_number, role, created_at
+		RETURNING id, phone_number, role, is_moderator, created_at
 	`
 
 	role := "viewer"
@@ -38,21 +39,21 @@ func (s *Service) findOrCreateUser(ctx context.Context, phoneNumber string) (*Us
 	}
 
 	var u User
-	err := s.store.PG.QueryRow(ctx, query, phoneNumber, role).Scan(&u.ID, &u.PhoneNumber, &u.Role, &u.CreatedAt)
+	err := s.store.PG.QueryRow(ctx, query, phoneNumber, role).Scan(&u.ID, &u.PhoneNumber, &u.Role, &u.IsModerator, &u.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
 	return &u, nil
 }
 
-// getUserByID re-fetches a user's current role/phone at refresh time rather
-// than trusting the (possibly stale, e.g. role-changed-since) refresh
-// token's associated ID alone.
+// getUserByID re-fetches a user's current role/phone/is_moderator at
+// refresh time rather than trusting the (possibly stale, e.g. changed-
+// since) refresh token's associated ID alone.
 func (s *Service) getUserByID(ctx context.Context, id string) (*User, error) {
-	const query = `SELECT id, phone_number, role, created_at FROM users WHERE id = $1`
+	const query = `SELECT id, phone_number, role, is_moderator, created_at FROM users WHERE id = $1`
 
 	var u User
-	err := s.store.PG.QueryRow(ctx, query, id).Scan(&u.ID, &u.PhoneNumber, &u.Role, &u.CreatedAt)
+	err := s.store.PG.QueryRow(ctx, query, id).Scan(&u.ID, &u.PhoneNumber, &u.Role, &u.IsModerator, &u.CreatedAt)
 	if err != nil {
 		return nil, err
 	}

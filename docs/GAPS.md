@@ -1,7 +1,7 @@
 # Open Gaps & Backlog
 
 **Companion to:** all other docs — this is the punch list, not a design spec
-**Version:** 0.5 — living document, expected to grow
+**Version:** 0.6 — living document, expected to grow
 **Date:** August 20, 2026
 
 This file exists because a fast-moving build (which this has been) is exactly how real gaps get missed until they're expensive. Nothing here is designed in depth — that's what `PRD.md`, `TECH_STACK.md`, and `USER_FLOWS.md` are for. This is just: **what don't we have an answer for yet.** Add to it whenever something new comes up; check items off as they get a real decision, not just a mention.
@@ -54,13 +54,14 @@ These surfaced *while writing up* the decisions in `PRD.md` §4.1–4.5 and §10
 
 ## Trust & safety
 
-- [ ] 🔴 **No in-app reporting mechanism, and no `reports` table.** Required by IT Rules 2021, not optional polish (`PRD.md` §3.4). Still the highest-priority unbuilt safety item.
+- [x] **In-app reporting + `reports` table — resolved.** A report action on each reel (reason: not devotional, filmi/commercial track, financial solicitation, medical/miracle claim, hate speech, other — `PRD.md` §8.0.1), a `reports` table (`db/migrations/000008`), rate-limited per reporter (Redis, 20/hour) plus `UNIQUE(reporter_id, reel_id)` against the same reel being re-reported — the two together are the brake on sectarian brigading `PRD.md` §12 flags. A moderator queue (`GET /v1/moderation/reports`, gated on `is_moderator`/`role=admin`) can dismiss a report or remove the reel (`api/internal/moderation`).
 - [ ] 🔴 **Anti-scam rules not implemented.** `PRD.md` §8.0.1 defines the rule (no donation requests, payment handles, or external links anywhere — videos, captions, bios, comments). Needs enforcement in the upload pipeline and comment filter, not just a guidelines line. This is where actual financial harm to users happens and it has no technical control today.
-- [ ] 🔴 **No medical/miracle-claim detection.** "Chant this to cure your illness" — real harm, real legal exposure, common in the category. Needs to be part of the classifier prompt, not a separate system.
+- [ ] 🔴 **No medical/miracle-claim detection.** "Chant this to cure your illness" — real harm, real legal exposure, common in the category. Needs to be part of the classifier prompt, not a separate system. (The report reason exists now so a human can flag it after the fact; there's still no automated detection at upload time.)
 - [ ] 🟡 **Comment default should flip to "reflection only"** (`PRD.md` §8.0.1). Currently creators opt in to restriction; it should be the reverse. Small change, large effect on where sectarian conflict lands.
 - [ ] 🟡 **Verification bar undefined.** `PRD.md` §8.5 sets the framing (identity not endorsement, institutional accounts preferred, public record only). Still needs the written threshold: allegation vs. FIR vs. charges vs. conviction.
 - [ ] 🟡 **Exit process unwritten** (`PRD.md` §8.6) — what happens when a verified figure is credibly accused. Must exist before it's needed.
-- [ ] 🟡 **No admin audit log** (who moderated/banned what, when, why) — IT Rules requirement, plus basic accountability once more than one moderator exists.
+- [x] **Admin audit log — resolved.** `moderation_audit_log` (`db/migrations/000008`) records moderator id, reel, report, action (`reel_removed`/`report_dismissed`), an optional reason, and a timestamp on every queue action — surfaced read-only at `GET /v1/moderation/audit-log` and in-app (moderation queue's history icon).
+- [ ] 🟡 **Dev-DB test account has `is_moderator = true` — must not carry into production.** `+919812345678` was flagged a moderator directly in the local Postgres to verify the reporting/queue/audit-log flow end to end. That flag only exists in this machine's dev database (it's not in any migration or seed script), but a fresh production deploy that's ever restored from a dev dump, or a shared staging DB, could carry it forward silently. Needs a pre-launch check (or a `WHERE role != 'admin'` sanity query against prod) that no non-designated account holds `is_moderator`/`role = admin` before real users arrive.
 - [ ] 🟢 Appeals flow for a rejected upload or a strike — mentioned in `PRD.md` §7.8, not built.
 
 ## Search & discovery

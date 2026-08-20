@@ -49,3 +49,21 @@ String? jwtRole(String token) {
     return null;
   }
 }
+
+/// Reads the `is_moderator` claim — same caveats as [jwtRole]: UI-only
+/// (shows/hides the moderation queue entry point), never the real
+/// enforcement, which is api/internal/server/moderation.go's
+/// requireModerator checking the same claim server-side.
+bool jwtIsModerator(String token) {
+  final parts = token.split('.');
+  if (parts.length != 3) return false;
+  try {
+    final payload = jsonDecode(
+      utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))),
+    );
+    final isModerator = payload['is_moderator'];
+    return isModerator == true;
+  } catch (_) {
+    return false;
+  }
+}

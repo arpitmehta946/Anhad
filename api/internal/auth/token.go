@@ -21,12 +21,14 @@ type TokenPair struct {
 	ExpiresIn    int64 // access token lifetime, in seconds
 }
 
-// Claims are the JWT access token's payload. Role travels in the token so
-// downstream handlers can authorize without a database round trip; it's
-// only as fresh as the token, which is fine given the short (15 min) TTL.
+// Claims are the JWT access token's payload. Role and IsModerator travel
+// in the token so downstream handlers can authorize without a database
+// round trip; both are only as fresh as the token, which is fine given
+// the short (15 min) TTL.
 type Claims struct {
-	Phone string `json:"phone"`
-	Role  string `json:"role"`
+	Phone       string `json:"phone"`
+	Role        string `json:"role"`
+	IsModerator bool   `json:"is_moderator"`
 	jwt.RegisteredClaims
 }
 
@@ -39,8 +41,9 @@ func (s *Service) issueTokens(ctx context.Context, user *User) (*TokenPair, erro
 	now := time.Now()
 
 	claims := &Claims{
-		Phone: user.PhoneNumber,
-		Role:  user.Role,
+		Phone:       user.PhoneNumber,
+		Role:        user.Role,
+		IsModerator: user.IsModerator,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   user.ID,
 			IssuedAt:  jwt.NewNumericDate(now),

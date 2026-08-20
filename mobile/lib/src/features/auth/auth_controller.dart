@@ -18,6 +18,7 @@ class AuthState {
     this.isSubmitting = false,
     this.error,
     this.role,
+    this.isModerator = false,
   });
 
   /// True until the stored-session check on app start resolves — the app
@@ -40,6 +41,12 @@ class AuthState {
   /// absent only ever hides a button early, never grants access late.
   final String? role;
 
+  /// Decoded from the access token (data/jwt.dart's jwtIsModerator) — same
+  /// UI-only caveat as [role]: shows/hides the moderation queue entry
+  /// point, never the real enforcement
+  /// (api/internal/server/moderation.go's requireModerator).
+  final bool isModerator;
+
   bool get isCreator => role == 'creator';
 
   AuthState copyWith({
@@ -51,6 +58,7 @@ class AuthState {
     String? error,
     bool clearError = false,
     String? role,
+    bool? isModerator,
   }) {
     return AuthState(
       checkingSession: checkingSession ?? this.checkingSession,
@@ -59,6 +67,7 @@ class AuthState {
       isSubmitting: isSubmitting ?? this.isSubmitting,
       error: clearError ? null : (error ?? this.error),
       role: role ?? this.role,
+      isModerator: isModerator ?? this.isModerator,
     );
   }
 }
@@ -95,6 +104,7 @@ class AuthController extends StateNotifier<AuthState> {
       checkingSession: false,
       isAuthenticated: refreshToken != null,
       role: accessToken != null ? jwtRole(accessToken) : null,
+      isModerator: accessToken != null && jwtIsModerator(accessToken),
     );
   }
 
@@ -126,6 +136,7 @@ class AuthController extends StateNotifier<AuthState> {
         isSubmitting: false,
         isAuthenticated: true,
         role: jwtRole(tokens.accessToken),
+        isModerator: jwtIsModerator(tokens.accessToken),
       );
     } catch (e, stackTrace) {
       if (!mounted) return;
@@ -169,7 +180,12 @@ class AuthController extends StateNotifier<AuthState> {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
       );
-      if (mounted) state = state.copyWith(role: jwtRole(tokens.accessToken));
+      if (mounted) {
+        state = state.copyWith(
+          role: jwtRole(tokens.accessToken),
+          isModerator: jwtIsModerator(tokens.accessToken),
+        );
+      }
       return tokens.accessToken;
     } catch (_) {
       // The refresh token is dead (expired, already used, or revoked) —
