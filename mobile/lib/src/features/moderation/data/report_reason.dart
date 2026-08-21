@@ -16,7 +16,14 @@ class ReportReason {
       ReportReason('medical_miracle_claim', 'Medical or miracle claim');
   static const hateSpeech = ReportReason('hate_speech', 'Hate speech');
   static const other = ReportReason('other', 'Other');
+  // Never shown as a pickable reason in the report sheet — the moderation
+  // pipeline files this itself (api/internal/moderation/pipeline.go), not
+  // a human reporter. Only appears in the moderator queue/audit log.
+  static const pipelineUncertain =
+      ReportReason('pipeline_uncertain', 'Held by moderation pipeline');
 
+  /// Reasons a person reporting a reel can pick from — pipelineUncertain
+  /// is deliberately excluded, see its own doc.
   static const all = [
     notDevotional,
     filmiCommercial,
@@ -27,7 +34,7 @@ class ReportReason {
   ];
 
   static String labelFor(String slug) {
-    for (final reason in all) {
+    for (final reason in [...all, pipelineUncertain]) {
       if (reason.slug == slug) return reason.label;
     }
     return slug;

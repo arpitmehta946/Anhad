@@ -4,3 +4,8 @@ Thumbs.db
 
 # Local video-storage stub (docs/TECH_STACK.md §3, VIDEO_STORAGE_BACKEND=local)
 api/data/
+
+# Labelled test clips for cmd/moderationeval (bhajan/filmi/hard) — large,
+# includes copyrighted commercial audio, and personal WhatsApp-forwarded
+# media. Never committed.
+testdata/

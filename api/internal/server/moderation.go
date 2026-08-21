@@ -87,6 +87,18 @@ func listModerationQueueHandler(logger *slog.Logger, modSvc *moderation.Service)
 			if item.ReelCaption != nil {
 				reel["caption"] = *item.ReelCaption
 			}
+			if item.ReelModerationTranscript != nil {
+				reel["moderation_transcript"] = *item.ReelModerationTranscript
+			}
+			if item.ReelModerationLabel != nil {
+				reel["moderation_classifier_label"] = *item.ReelModerationLabel
+			}
+			if item.ReelModerationReason != nil {
+				reel["moderation_classifier_reason"] = *item.ReelModerationReason
+			}
+			if item.ReelModerationFingerprint != nil {
+				reel["moderation_fingerprint_match"] = *item.ReelModerationFingerprint
+			}
 			m := reportJSON(&item.Report)
 			m["reel"] = reel
 			out[i] = m
@@ -197,9 +209,19 @@ func listAuditLogHandler(logger *slog.Logger, modSvc *moderation.Service) http.H
 }
 
 func reportJSON(report *moderation.Report) map[string]any {
+	// source lets the client show "flagged by the moderation pipeline"
+	// without having to treat a null reporter_id as the signal itself —
+	// see docs/PRD.md §8.1: a pipeline hold and a human report land in
+	// the same queue, but a moderator reviewing one should be able to
+	// tell at a glance which it is.
+	source := "report"
+	if report.ReporterID == nil {
+		source = "pipeline"
+	}
 	m := map[string]any{
 		"id":          report.ID,
 		"reporter_id": report.ReporterID,
+		"source":      source,
 		"reel_id":     report.ReelID,
 		"reason":      report.Reason,
 		"status":      report.Status,

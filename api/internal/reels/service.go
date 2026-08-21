@@ -1,16 +1,17 @@
 // Package reels implements the first feed slice (docs/PRD.md §4.1, §7.1):
 // upload (via a pre-signed-URL-style VideoStorage), and a reverse-
-// chronological, category-filterable feed of already-moderated reels. The
-// moderation pipeline itself (docs/PRD.md §8) is a later slice — every
-// reel created here starts and stays PENDING until something outside this
-// package advances it, which is exactly why ListFeed only ever returns
-// approved rows.
+// chronological, category-filterable feed of already-moderated reels.
+// Every reel created here starts PENDING and is advanced by
+// internal/moderation's async pipeline (enqueued at the end of
+// CreateReel) to either APPROVED or HELD, never by this package directly
+// — which is exactly why ListFeed only ever returns approved rows.
 package reels
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/anhad/api/internal/store"
@@ -55,13 +56,24 @@ type Reel struct {
 // (internal/server/reels.go's requireRole) — this mirrors how JWT
 // validity itself is checked in requireAuth and never re-verified here,
 // not a gap in this package.
-type Service struct {
-	store   *store.Store
-	storage VideoStorage
+// ModerationEnqueuer kicks off the async three-layer moderation pipeline
+// (docs/PRD.md §8.1) for a newly created reel — implemented by
+// internal/moderation.AsynqEnqueuer. Defined here rather than importing
+// internal/moderation directly, the same decoupling VideoStorage already
+// gives this package from whichever real storage backend is live.
+type ModerationEnqueuer interface {
+	EnqueueClassifyReel(ctx context.Context, reelID, videoURL string) error
 }
 
-func NewService(st *store.Store, storage VideoStorage) *Service {
-	return &Service{store: st, storage: storage}
+type Service struct {
+	store    *store.Store
+	storage  VideoStorage
+	enqueuer ModerationEnqueuer
+	logger   *slog.Logger
+}
+
+func NewService(st *store.Store, storage VideoStorage, enqueuer ModerationEnqueuer, logger *slog.Logger) *Service {
+	return &Service{store: st, storage: storage, enqueuer: enqueuer, logger: logger}
 }
 
 // CreateUploadTarget hands back a fresh upload target for a creator to
@@ -101,6 +113,18 @@ func (s *Service) CreateReel(ctx context.Context, creatorID, videoID, category s
 	if err != nil {
 		return nil, fmt.Errorf("insert reel: %w", err)
 	}
+
+	// Best-effort: the reel is already durably PENDING at this point, so a
+	// queue hiccup here shouldn't fail an otherwise-successful upload
+	// request (the client would read that as "upload failed" and could
+	// retry, creating a duplicate reel). A PENDING reel that never gets
+	// enqueued just sits unmoderated rather than being lost — a real gap,
+	// worth a periodic sweep eventually, but not one this request should
+	// pay for.
+	if err := s.enqueuer.EnqueueClassifyReel(ctx, reel.ID, reel.VideoURL); err != nil {
+		s.logger.Error("failed to enqueue moderation pipeline", "reel_id", reel.ID, "error", err)
+	}
+
 	return &reel, nil
 }
 

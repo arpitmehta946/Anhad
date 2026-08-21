@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/hibiken/asynq"
+
 	"github.com/anhad/api/internal/auth"
 	"github.com/anhad/api/internal/config"
 	"github.com/anhad/api/internal/japa"
@@ -15,16 +17,18 @@ import (
 	"github.com/anhad/api/internal/store"
 )
 
-// New assembles an *http.Server with the route table. Moderation routes
-// (docs/PRD.md §8) land in a later slice — reels created here always land
-// PENDING and the feed only ever reads APPROVED rows, so there's nothing
-// here yet that can advance one to the other.
+// New assembles the HTTP route table and the moderation-pipeline worker
+// that runs alongside it. They're returned separately (not one bundled
+// type) because main.go starts and stops each with http.Server/asynq.Server's
+// own existing methods rather than a new abstraction wrapping both.
 //
 // Returns an error rather than panicking so main.go can fail startup the
 // same way store.Connect already does — local video storage needs to
-// create a directory on disk (internal/reels.NewLocalVideoStorage), which
-// can fail for a real, worth-surfacing reason (permissions, a full disk).
-func New(cfg *config.Config, logger *slog.Logger, st *store.Store) (*http.Server, error) {
+// create a directory on disk (internal/reels.NewLocalVideoStorage), and
+// the moderation pipeline needs a reachable whisper-cli binary
+// (internal/moderation.BuildPipeline) — both worth failing loudly on at
+// boot rather than on the first upload.
+func New(cfg *config.Config, logger *slog.Logger, st *store.Store) (*http.Server, *asynq.Server, asynq.Handler, error) {
 	authSvc := auth.NewService(st, logger, cfg)
 	japaSvc := japa.NewService(st, logger)
 
@@ -34,7 +38,7 @@ func New(cfg *config.Config, logger *slog.Logger, st *store.Store) (*http.Server
 	case "local":
 		local, err := reels.NewLocalVideoStorage(cfg.LocalUploadDir, cfg.PublicBaseURL)
 		if err != nil {
-			return nil, fmt.Errorf("set up local video storage: %w", err)
+			return nil, nil, nil, fmt.Errorf("set up local video storage: %w", err)
 		}
 		localStorage = local
 		videoStorage = local
@@ -43,9 +47,22 @@ func New(cfg *config.Config, logger *slog.Logger, st *store.Store) (*http.Server
 		// it against without a real Cloudflare account and API token.
 		// config.Load already rejects any other value, so this is the
 		// only other case reachable.
-		return nil, fmt.Errorf("VIDEO_STORAGE_BACKEND=cloudflare is not implemented yet")
+		return nil, nil, nil, fmt.Errorf("VIDEO_STORAGE_BACKEND=cloudflare is not implemented yet")
 	}
-	reelsSvc := reels.NewService(st, videoStorage)
+
+	redisOpt, err := asynq.ParseRedisURI(cfg.RedisURL)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("parse REDIS_URL for asynq: %w", err)
+	}
+
+	pipeline, err := moderation.BuildPipeline(cfg, logger)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("build moderation pipeline: %w", err)
+	}
+	workerServer, workerHandler := moderation.NewWorkerServer(redisOpt, st, pipeline, logger)
+	enqueuer := moderation.NewAsynqEnqueuer(redisOpt)
+
+	reelsSvc := reels.NewService(st, videoStorage, enqueuer, logger)
 	moderationSvc := moderation.NewService(st)
 
 	mux := http.NewServeMux()
@@ -80,10 +97,11 @@ func New(cfg *config.Config, logger *slog.Logger, st *store.Store) (*http.Server
 		mux.HandleFunc("GET /v1/reels/uploads/{id}/file", playLocalVideoHandler(logger, localStorage))
 	}
 
-	return &http.Server{
+	httpServer := &http.Server{
 		Addr:    cfg.Addr,
 		Handler: logRequests(logger)(mux),
-	}, nil
+	}
+	return httpServer, workerServer, workerHandler, nil
 }
 
 // healthHandler pings Postgres and Redis on every call. Dependency error

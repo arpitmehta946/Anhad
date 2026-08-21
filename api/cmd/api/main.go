@@ -34,7 +34,7 @@ func main() {
 	}
 	defer st.Close()
 
-	srv, err := server.New(cfg, logger, st)
+	srv, worker, workerHandler, err := server.New(cfg, logger, st)
 	if err != nil {
 		logger.Error("failed to build server", "error", err)
 		os.Exit(1)
@@ -48,11 +48,23 @@ func main() {
 		}
 	}()
 
+	// The moderation pipeline worker (internal/moderation) runs embedded in
+	// this same process — see server.New's doc for why that's fine at this
+	// project's current scale rather than a separate deployment.
+	go func() {
+		logger.Info("starting moderation worker")
+		if err := worker.Run(workerHandler); err != nil {
+			logger.Error("moderation worker error", "error", err)
+			os.Exit(1)
+		}
+	}()
+
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
 
 	logger.Info("shutting down")
+	worker.Shutdown()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {

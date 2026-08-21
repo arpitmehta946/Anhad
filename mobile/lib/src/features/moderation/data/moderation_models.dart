@@ -8,11 +8,16 @@ class QueueItem {
     required this.reelId,
     required this.reason,
     required this.status,
+    required this.source,
     required this.createdAt,
     required this.reelVideoUrl,
     required this.reelCategory,
     this.detail,
     this.reelCaption,
+    this.reelModerationTranscript,
+    this.reelModerationLabel,
+    this.reelModerationReason,
+    this.reelModerationFingerprint,
   });
 
   factory QueueItem.fromJson(Map<String, dynamic> json) {
@@ -23,10 +28,18 @@ class QueueItem {
       reason: json['reason'] as String,
       detail: json['detail'] as String?,
       status: json['status'] as String,
+      // "pipeline" when the moderation pipeline itself filed this (no
+      // human reporter — api/internal/server/moderation.go's reportJSON),
+      // "report" for an ordinary user report.
+      source: json['source'] as String? ?? 'report',
       createdAt: DateTime.parse(json['created_at'] as String),
       reelVideoUrl: reel['video_url'] as String,
       reelCategory: reel['category'] as String,
       reelCaption: reel['caption'] as String?,
+      reelModerationTranscript: reel['moderation_transcript'] as String?,
+      reelModerationLabel: reel['moderation_classifier_label'] as String?,
+      reelModerationReason: reel['moderation_classifier_reason'] as String?,
+      reelModerationFingerprint: reel['moderation_fingerprint_match'] as String?,
     );
   }
 
@@ -35,10 +48,17 @@ class QueueItem {
   final String reason;
   final String? detail;
   final String status;
+  final String source;
   final DateTime createdAt;
   final String reelVideoUrl;
   final String reelCategory;
   final String? reelCaption;
+  final String? reelModerationTranscript;
+  final String? reelModerationLabel;
+  final String? reelModerationReason;
+  final String? reelModerationFingerprint;
+
+  bool get isPipelineFlagged => source == 'pipeline';
 }
 
 /// An entry from GET /v1/moderation/audit-log — who acted on what, when,

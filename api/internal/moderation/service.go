@@ -23,11 +23,16 @@ import (
 // catch; not_devotional and filmi_commercial back the category/audio
 // checks (§8.1, §8.2); hate_speech covers the Satsang-comment risk §8.0.1
 // itself flags; other is a deliberate catch-all rather than forcing a
-// false-precision choice.
+// false-precision choice. pipeline_uncertain is never chosen by a human
+// reporter (SubmitReport rejects it via isValidReason below) — it's what
+// the moderation pipeline itself files (reporter_id NULL, pipeline.go's
+// RunAndSave) when a reel fails or can't confidently pass the classifier.
 var Reasons = []string{
 	"not_devotional", "filmi_commercial", "financial_solicitation",
 	"medical_miracle_claim", "hate_speech", "other",
 }
+
+const reasonPipelineUncertain = "pipeline_uncertain"
 
 var (
 	ErrInvalidReason = errors.New(
@@ -62,10 +67,13 @@ const (
 	maxReportsPerWindow   = 20
 )
 
-// Report is a row from the reports table (db/migrations/000008).
+// Report is a row from the reports table (db/migrations/000008,
+// db/migrations/000009). ReporterID is nil for a system-generated report
+// the moderation pipeline filed (reason = pipeline_uncertain) rather than
+// a human — see reasonPipelineUncertain and pipeline.go's RunAndSave.
 type Report struct {
 	ID         string
-	ReporterID string
+	ReporterID *string
 	ReelID     string
 	Reason     string
 	Detail     *string
@@ -74,13 +82,22 @@ type Report struct {
 }
 
 // QueueItem is an open report joined with just enough about the reported
-// reel for a moderator to review it without a second round trip.
+// reel for a moderator to review it without a second round trip. The
+// ReelModeration* fields are only ever non-nil for a pipeline-filed
+// report (Report.ReporterID == nil) — a human report's reel may or may
+// not have pipeline detail depending on when it was uploaded, but the
+// fields are always there in the response shape either way so the
+// mobile client doesn't need two response types.
 type QueueItem struct {
 	Report
-	ReelVideoURL  string
-	ReelCaption   *string
-	ReelCategory  string
-	ReelCreatorID string
+	ReelVideoURL              string
+	ReelCaption               *string
+	ReelCategory              string
+	ReelCreatorID             string
+	ReelModerationTranscript  *string
+	ReelModerationLabel       *string
+	ReelModerationReason      *string
+	ReelModerationFingerprint *string
 }
 
 // AuditLogEntry is a row from moderation_audit_log — every moderator
@@ -175,7 +192,9 @@ func (s *Service) ListQueue(ctx context.Context, limit int) ([]*QueueItem, error
 
 	const query = `
 		SELECT r.id, r.reporter_id, r.reel_id, r.reason, r.detail, r.status, r.created_at,
-		       reels.video_url, reels.caption, reels.category, reels.creator_id
+		       reels.video_url, reels.caption, reels.category, reels.creator_id,
+		       reels.moderation_transcript, reels.moderation_classifier_label,
+		       reels.moderation_classifier_reason, reels.moderation_fingerprint_match
 		FROM reports r
 		JOIN reels ON reels.id = r.reel_id
 		WHERE r.status = 'open'
@@ -195,6 +214,8 @@ func (s *Service) ListQueue(ctx context.Context, limit int) ([]*QueueItem, error
 			&item.ID, &item.ReporterID, &item.ReelID, &item.Reason, &item.Detail,
 			&item.Status, &item.CreatedAt,
 			&item.ReelVideoURL, &item.ReelCaption, &item.ReelCategory, &item.ReelCreatorID,
+			&item.ReelModerationTranscript, &item.ReelModerationLabel,
+			&item.ReelModerationReason, &item.ReelModerationFingerprint,
 		); err != nil {
 			return nil, fmt.Errorf("scan queue item: %w", err)
 		}
@@ -209,6 +230,15 @@ func (s *Service) ListQueue(ctx context.Context, limit int) ([]*QueueItem, error
 // DismissReport marks a report reviewed with no action taken against the
 // reel — the report itself may still have been mistaken, sectarian, or
 // simply not a real violation. Logs the decision either way.
+//
+// For a reel the moderation pipeline held (or one that's still plain
+// 'pending'), dismissing is what actually publishes it — "no violation
+// here" on a not-yet-approved reel means it should become approved, the
+// same call a moderator reviewing a pipeline-flagged upload is making.
+// For a reel already 'approved' (the ordinary user-report case), this is
+// a no-op on the reel itself. It never touches an already-'rejected' reel
+// — dismissing an unrelated later report can't un-reject something a
+// moderator already took down.
 func (s *Service) DismissReport(ctx context.Context, moderatorID, reportID string, reason *string) error {
 	return s.actOnReport(ctx, moderatorID, reportID, "report_dismissed", reason, false)
 }
@@ -255,6 +285,13 @@ func (s *Service) actOnReport(ctx context.Context, moderatorID, reportID, action
 			`UPDATE reels SET moderation_status = 'rejected' WHERE id = $1`, reelID,
 		); err != nil {
 			return fmt.Errorf("reject reel: %w", err)
+		}
+	} else {
+		if _, err := tx.Exec(ctx,
+			`UPDATE reels SET moderation_status = 'approved' WHERE id = $1 AND moderation_status IN ('pending', 'held')`,
+			reelID,
+		); err != nil {
+			return fmt.Errorf("approve reel: %w", err)
 		}
 	}
 

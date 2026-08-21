@@ -51,7 +51,10 @@ class _ModerationQueueScreenState extends ConsumerState<ModerationQueueScreen> {
   }
 
   Future<void> _act(QueueItem item, {required bool removeReel}) async {
-    final reason = await _promptReason(removeReel: removeReel);
+    final reason = await _promptReason(
+      removeReel: removeReel,
+      isPipelineFlagged: item.isPipelineFlagged,
+    );
     if (reason == null) return; // cancelled
 
     setState(() => _actioning.add(item.id));
@@ -78,12 +81,19 @@ class _ModerationQueueScreenState extends ConsumerState<ModerationQueueScreen> {
     }
   }
 
-  Future<String?> _promptReason({required bool removeReel}) {
+  Future<String?> _promptReason({
+    required bool removeReel,
+    required bool isPipelineFlagged,
+  }) {
     final controller = TextEditingController();
+    final title = removeReel
+        ? 'Remove this reel?'
+        : (isPipelineFlagged ? 'Approve this reel?' : 'Dismiss this report?');
+    final confirmLabel = removeReel ? 'Remove' : (isPipelineFlagged ? 'Approve' : 'Dismiss');
     return showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(removeReel ? 'Remove this reel?' : 'Dismiss this report?'),
+        title: Text(title),
         content: TextField(
           controller: controller,
           autofocus: true,
@@ -99,7 +109,7 @@ class _ModerationQueueScreenState extends ConsumerState<ModerationQueueScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-            child: Text(removeReel ? 'Remove' : 'Dismiss'),
+            child: Text(confirmLabel),
           ),
         ],
       ),
@@ -201,7 +211,11 @@ class _QueueItemCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.flag_outlined, size: 16, color: AnhadColors.accentSindoor),
+              Icon(
+                item.isPipelineFlagged ? Icons.smart_toy_outlined : Icons.flag_outlined,
+                size: 16,
+                color: AnhadColors.accentSindoor,
+              ),
               const SizedBox(width: 6),
               Text(
                 ReportReason.labelFor(item.reason),
@@ -222,17 +236,52 @@ class _QueueItemCard extends StatelessWidget {
           ],
           const SizedBox(height: 4),
           Text(
-            'reel ${item.reelId.substring(0, 8)} · reported ${_relativeTime(item.createdAt)}',
+            'reel ${item.reelId.substring(0, 8)} · '
+            '${item.isPipelineFlagged ? "flagged" : "reported"} ${_relativeTime(item.createdAt)}',
             style: theme.textTheme.bodySmall
                 ?.copyWith(color: AnhadColors.duskTextSecondary),
           ),
+          // Pipeline-flagged items carry the classifier's own working —
+          // a human report has none of this (docs/PRD.md §8.1's pipeline
+          // detail only exists on reels the pipeline itself processed).
+          if (item.isPipelineFlagged) ...[
+            const SizedBox(height: 8),
+            if (item.reelModerationLabel != null)
+              Text(
+                'classifier: ${item.reelModerationLabel}'
+                '${item.reelModerationReason != null ? " — ${item.reelModerationReason}" : ""}',
+                style: theme.textTheme.bodySmall,
+              ),
+            if (item.reelModerationFingerprint != null)
+              Text(
+                'fingerprint match: ${item.reelModerationFingerprint}',
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: AnhadColors.accentSindoor),
+              ),
+            if (item.reelModerationTranscript != null &&
+                item.reelModerationTranscript!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  '"${item.reelModerationTranscript}"',
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: AnhadColors.duskTextSecondary, fontStyle: FontStyle.italic),
+                ),
+              ),
+          ],
           const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
                 child: OutlinedButton(
                   onPressed: busy ? null : onDismiss,
-                  child: const Text('Dismiss'),
+                  // Dismissing a pipeline hold is what actually publishes
+                  // it (internal/moderation.Service.actOnReport) — "Approve"
+                  // says what it does; "Dismiss" only makes sense for an
+                  // already-published reel a human reported.
+                  child: Text(item.isPipelineFlagged ? 'Approve' : 'Dismiss'),
                 ),
               ),
               const SizedBox(width: 8),
