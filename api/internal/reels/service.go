@@ -36,18 +36,28 @@ var (
 	ErrUploadNotReady = errors.New("upload not found or not finished yet")
 )
 
-// Reel is a row from the reels table (db/migrations/000004,
-// 000007) — only the columns this slice actually reads or writes; the
-// engagement counters exist in the schema but nothing here touches them
-// yet.
+// Reel is a row from the reels table (db/migrations/000004, 000007,
+// 000010), joined with just enough of its creator's own row
+// (display name, comments_mode) that the feed and reel-detail responses
+// don't need a second round trip per reel. The four engagement counters
+// are read here now (internal/social keeps them in step with the
+// pranams/smarans/satsang_comments tables and share_count/save_count),
+// though writing them is entirely internal/social's job, not this
+// package's.
 type Reel struct {
-	ID               string
-	CreatorID        string
-	VideoURL         string
-	Caption          *string
-	Category         string
-	ModerationStatus string
-	CreatedAt        time.Time
+	ID                  string
+	CreatorID           string
+	CreatorDisplayName  *string
+	VideoURL            string
+	Caption             *string
+	Category            string
+	ModerationStatus    string
+	CreatorCommentsMode string
+	PranamCount         int64
+	SatsangCount        int64
+	PrasadCount         int64
+	SmaranCount         int64
+	CreatedAt           time.Time
 }
 
 // Service implements reel upload and the public feed read. Role
@@ -100,15 +110,27 @@ func (s *Service) CreateReel(ctx context.Context, creatorID, videoID, category s
 		return nil, ErrUploadNotReady
 	}
 
+	// The CTE, rather than a plain INSERT...RETURNING, is what lets this
+	// still come back with the creator's real display_name/comments_mode in
+	// one round trip — a plain RETURNING can't reach into users. The four
+	// engagement counts aren't selected from anywhere: a reel this request
+	// just inserted genuinely has none yet, and the zero values Go already
+	// gives int64 fields are correct without a query to prove it.
 	const query = `
-		INSERT INTO reels (creator_id, video_url, category, caption)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, creator_id, video_url, caption, category, moderation_status, created_at
+		WITH inserted AS (
+			INSERT INTO reels (creator_id, video_url, category, caption)
+			VALUES ($1, $2, $3, $4)
+			RETURNING id, creator_id, video_url, caption, category, moderation_status, created_at
+		)
+		SELECT inserted.id, inserted.creator_id, u.display_name, inserted.video_url, inserted.caption,
+		       inserted.category, inserted.moderation_status, u.comments_mode, inserted.created_at
+		FROM inserted
+		JOIN users u ON u.id = inserted.creator_id
 	`
 	var reel Reel
 	err = s.store.PG.QueryRow(ctx, query, creatorID, videoURL, category, caption).Scan(
-		&reel.ID, &reel.CreatorID, &reel.VideoURL, &reel.Caption, &reel.Category,
-		&reel.ModerationStatus, &reel.CreatedAt,
+		&reel.ID, &reel.CreatorID, &reel.CreatorDisplayName, &reel.VideoURL, &reel.Caption, &reel.Category,
+		&reel.ModerationStatus, &reel.CreatorCommentsMode, &reel.CreatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("insert reel: %w", err)
@@ -144,12 +166,15 @@ func (s *Service) ListFeed(ctx context.Context, category *string, before *time.T
 	}
 
 	const query = `
-		SELECT id, creator_id, video_url, caption, category, moderation_status, created_at
-		FROM reels
-		WHERE moderation_status = 'approved'
-		  AND ($1::text IS NULL OR category = $1)
-		  AND ($2::timestamptz IS NULL OR created_at < $2)
-		ORDER BY created_at DESC
+		SELECT r.id, r.creator_id, u.display_name, r.video_url, r.caption, r.category,
+		       r.moderation_status, u.comments_mode,
+		       r.like_count, r.comment_count, r.share_count, r.save_count, r.created_at
+		FROM reels r
+		JOIN users u ON u.id = r.creator_id
+		WHERE r.moderation_status = 'approved'
+		  AND ($1::text IS NULL OR r.category = $1)
+		  AND ($2::timestamptz IS NULL OR r.created_at < $2)
+		ORDER BY r.created_at DESC
 		LIMIT $3
 	`
 	rows, err := s.store.PG.Query(ctx, query, category, before, limit)
@@ -162,8 +187,9 @@ func (s *Service) ListFeed(ctx context.Context, category *string, before *time.T
 	for rows.Next() {
 		var reel Reel
 		if err := rows.Scan(
-			&reel.ID, &reel.CreatorID, &reel.VideoURL, &reel.Caption, &reel.Category,
-			&reel.ModerationStatus, &reel.CreatedAt,
+			&reel.ID, &reel.CreatorID, &reel.CreatorDisplayName, &reel.VideoURL, &reel.Caption, &reel.Category,
+			&reel.ModerationStatus, &reel.CreatorCommentsMode,
+			&reel.PranamCount, &reel.SatsangCount, &reel.PrasadCount, &reel.SmaranCount, &reel.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan reel: %w", err)
 		}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/anhad/api/internal/auth"
 	"github.com/anhad/api/internal/reels"
+	"github.com/anhad/api/internal/social"
 )
 
 // createUploadTargetHandler hands a creator a fresh place to upload a
@@ -62,7 +63,10 @@ func createReelHandler(logger *slog.Logger, reelsSvc *reels.Service) http.Handle
 		reel, err := reelsSvc.CreateReel(r.Context(), claims.Subject, req.VideoID, req.Category, req.Caption)
 		switch {
 		case err == nil:
-			writeJSON(w, http.StatusCreated, reelJSON(reel))
+			// A brand new reel has no engagement yet and its own creator
+			// can't pranam/smaran/sevak it (ErrCannotFollowSelf's whole
+			// point) — false/false/false is the only correct viewer state.
+			writeJSON(w, http.StatusCreated, reelJSON(reel, false, false, false))
 		case errors.Is(err, reels.ErrInvalidCategory):
 			writeError(w, http.StatusBadRequest, err.Error())
 		case errors.Is(err, reels.ErrUploadNotReady):
@@ -74,11 +78,15 @@ func createReelHandler(logger *slog.Logger, reelsSvc *reels.Service) http.Handle
 	}
 }
 
-// listFeedHandler is deliberately unauthenticated — docs/PRD.md's own
-// pitch is that viewers browse for free, and the onboarding flow already
-// defers signup past a person's first real activity, so the feed itself
-// has no reason to be the thing that finally demands an account.
-func listFeedHandler(logger *slog.Logger, reelsSvc *reels.Service) http.HandlerFunc {
+// listFeedHandler is deliberately reachable without a bearer token —
+// docs/PRD.md's own pitch is that viewers browse for free, and the
+// onboarding flow already defers signup past a person's first real
+// activity, so the feed itself has no reason to be the thing that finally
+// demands an account. It's wired through optionalAuth rather than left
+// with no auth handling at all, though: a signed-in caller still gets their
+// own Pranam/Smaran/Sevak state folded into each reel via reelJSON's
+// viewer_* fields below; an anonymous one just doesn't.
+func listFeedHandler(logger *slog.Logger, reelsSvc *reels.Service, socialSvc *social.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var category *string
 		if c := r.URL.Query().Get("category"); c != "" {
@@ -103,9 +111,27 @@ func listFeedHandler(logger *slog.Logger, reelsSvc *reels.Service) http.HandlerF
 			return
 		}
 
+		var pranamed, smaraned, following map[string]bool
+		if claims, ok := auth.ClaimsFromContext(r.Context()); ok {
+			reelIDs := make([]string, len(reelsList))
+			creatorIDs := make([]string, len(reelsList))
+			for i, reel := range reelsList {
+				reelIDs[i] = reel.ID
+				creatorIDs[i] = reel.CreatorID
+			}
+			pranamed, smaraned, following, err = socialSvc.ViewerState(r.Context(), claims.Subject, reelIDs, creatorIDs)
+			if err != nil {
+				// A viewer-state failure shouldn't turn "load the feed" into
+				// a 500 — every reel just renders as not-yet-pranam'd/
+				// smaran'd/followed for this response, which is wrong but
+				// recoverable the moment the next page loads successfully.
+				logger.Error("load viewer state failed", "error", err)
+			}
+		}
+
 		items := make([]map[string]any, len(reelsList))
 		for i, reel := range reelsList {
-			items[i] = reelJSON(reel)
+			items[i] = reelJSON(reel, pranamed[reel.ID], smaraned[reel.ID], following[reel.CreatorID])
 		}
 		resp := map[string]any{"reels": items}
 		if len(reelsList) == limit {
@@ -115,17 +141,35 @@ func listFeedHandler(logger *slog.Logger, reelsSvc *reels.Service) http.HandlerF
 	}
 }
 
-func reelJSON(reel *reels.Reel) map[string]any {
+// reelJSON always includes the four engagement counts and the creator's
+// comments_mode — every caller of ListFeed selects them now
+// (internal/reels.Service.ListFeed), so there's no partial-data case to
+// branch on. The three viewer_* fields are only meaningful for a signed-in
+// caller; listFeedHandler passes false for all three on an anonymous
+// request; the client tells the two cases apart via whether it has a
+// session at all, not via anything in this payload.
+func reelJSON(reel *reels.Reel, viewerPranamed, viewerSmaraned, viewerFollowingCreator bool) map[string]any {
 	m := map[string]any{
-		"id":         reel.ID,
-		"creator_id": reel.CreatorID,
-		"video_url":  reel.VideoURL,
-		"category":   reel.Category,
-		"status":     reel.ModerationStatus,
-		"created_at": reel.CreatedAt,
+		"id":                       reel.ID,
+		"creator_id":               reel.CreatorID,
+		"video_url":                reel.VideoURL,
+		"category":                 reel.Category,
+		"status":                   reel.ModerationStatus,
+		"comments_mode":            reel.CreatorCommentsMode,
+		"pranam_count":             reel.PranamCount,
+		"satsang_count":            reel.SatsangCount,
+		"prasad_count":             reel.PrasadCount,
+		"smaran_count":             reel.SmaranCount,
+		"viewer_pranamed":          viewerPranamed,
+		"viewer_smaraned":          viewerSmaraned,
+		"viewer_following_creator": viewerFollowingCreator,
+		"created_at":               reel.CreatedAt,
 	}
 	if reel.Caption != nil {
 		m["caption"] = *reel.Caption
+	}
+	if reel.CreatorDisplayName != nil {
+		m["creator_display_name"] = *reel.CreatorDisplayName
 	}
 	return m
 }

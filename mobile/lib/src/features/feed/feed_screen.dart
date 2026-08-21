@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../app.dart' show routeObserver;
+import '../../theme/anhad_icons.dart';
 import '../../theme/colors.dart';
 import '../auth/auth_controller.dart';
 import '../japa/japa_screen.dart';
@@ -13,6 +15,8 @@ import '../moderation/report_reel_sheet.dart';
 import '../onboarding/save_practice_screen.dart';
 import 'data/reel.dart';
 import 'data/reel_category.dart';
+import 'interaction_rail.dart';
+import 'social_provider.dart';
 import 'upload/upload_reel_provider.dart';
 import 'upload/upload_reel_screen.dart';
 
@@ -142,6 +146,15 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with RouteAware {
     }
   }
 
+  /// Swaps in a fresher copy of one reel after a Pranam/Satsang/Prasad/
+  /// Smaran/Sevak action completes — see Reel.copyWith's own doc for why
+  /// this is how the UI catches up rather than re-fetching the page.
+  void _updateReel(Reel updated) {
+    final index = _reels.indexWhere((r) => r.id == updated.id);
+    if (index == -1) return;
+    setState(() => _reels[index] = updated);
+  }
+
   @override
   Widget build(BuildContext context) {
     final isAuthenticated = ref.watch(
@@ -170,7 +183,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with RouteAware {
               icon: const Icon(Icons.shield_outlined),
               tooltip: 'Moderation queue',
               onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const ModerationQueueScreen()),
+                MaterialPageRoute(
+                    builder: (_) => const ModerationQueueScreen()),
               ),
             ),
           IconButton(
@@ -188,7 +202,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with RouteAware {
             IconButton(
               tooltip: 'Sign out',
               icon: const Icon(Icons.logout),
-              onPressed: () => ref.read(authControllerProvider.notifier).logout(),
+              onPressed: () =>
+                  ref.read(authControllerProvider.notifier).logout(),
             )
           else
             IconButton(
@@ -216,7 +231,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with RouteAware {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error != null && _reels.isEmpty) {
-      return _MessageState(message: _error!, onRetry: () => _loadPage(reset: true));
+      return _MessageState(
+          message: _error!, onRetry: () => _loadPage(reset: true));
     }
     if (_reels.isEmpty) {
       return _MessageState(
@@ -244,6 +260,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with RouteAware {
           muted: _muted,
           onToggleMute: () => setState(() => _muted = !_muted),
           onReport: () => showReportReelSheet(context, ref, reel.id),
+          onReelChanged: _updateReel,
         );
       },
     );
@@ -304,7 +321,8 @@ class _FilterChipButton extends StatelessWidget {
         onSelected: (_) => onTap(),
         selectedColor: AnhadColors.accentDiya,
         labelStyle: TextStyle(
-          color: selected ? AnhadColors.duskBgBase : AnhadColors.duskTextPrimary,
+          color:
+              selected ? AnhadColors.duskBgBase : AnhadColors.duskTextPrimary,
         ),
         backgroundColor: AnhadColors.duskBgSurface,
         side: BorderSide.none,
@@ -321,6 +339,7 @@ class _ReelPage extends StatefulWidget {
     required this.muted,
     required this.onToggleMute,
     required this.onReport,
+    required this.onReelChanged,
   });
 
   final Reel reel;
@@ -328,6 +347,7 @@ class _ReelPage extends StatefulWidget {
   final bool muted;
   final VoidCallback onToggleMute;
   final VoidCallback onReport;
+  final ValueChanged<Reel> onReelChanged;
 
   @override
   State<_ReelPage> createState() => _ReelPageState();
@@ -395,6 +415,14 @@ class _ReelPageState extends State<_ReelPage> {
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
+    // The system nav/gesture bar sits on top of this full-bleed Stack, not
+    // inside a Scaffold body SafeArea already accounts for — without this,
+    // the creator name, category, caption, and the bottom of the action
+    // rail render underneath it (same class of bug report_reel_sheet.dart
+    // had with the keyboard/nav-bar inset). Only the bottom inset is ever
+    // non-zero here: the top is already clear of the status bar because
+    // the feed's own AppBar and category row push this Stack down.
+    final safeBottom = MediaQuery.paddingOf(context).bottom;
     return GestureDetector(
       onTap: () {
         if (controller == null || !_ready) return;
@@ -417,14 +445,22 @@ class _ReelPageState extends State<_ReelPage> {
             const Center(
               child: CircularProgressIndicator(color: AnhadColors.accentDiya),
             ),
+          // Instagram/Reels layout: creator identity + caption anchored
+          // bottom-left, the action rail bottom-right, full-bleed video
+          // behind both (docs/FRONTEND_GUIDELINES.md §4) — a familiar,
+          // already-solved arrangement, so viewers don't have to relearn
+          // where anything lives just because the icons are Anhad's own.
           Positioned(
             left: 16,
-            right: 72,
-            bottom: 24,
+            right: 96,
+            bottom: 24 + safeBottom,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
+                _SevakRow(
+                    reel: widget.reel, onReelChanged: widget.onReelChanged),
+                const SizedBox(height: 6),
                 Text(
                   reelCategoryLabel(widget.reel.category),
                   style: const TextStyle(
@@ -443,14 +479,15 @@ class _ReelPageState extends State<_ReelPage> {
             ),
           ),
           Positioned(
-            right: 12,
-            bottom: 76,
-            child: _ReportButton(onTap: widget.onReport),
-          ),
-          Positioned(
-            right: 12,
-            bottom: 20,
-            child: _MuteButton(muted: widget.muted, onTap: widget.onToggleMute),
+            right: 4,
+            bottom: 12 + safeBottom,
+            child: InteractionRail(
+              reel: widget.reel,
+              onReelChanged: widget.onReelChanged,
+              muted: widget.muted,
+              onToggleMute: widget.onToggleMute,
+              onReport: widget.onReport,
+            ),
           ),
         ],
       ),
@@ -458,51 +495,95 @@ class _ReelPageState extends State<_ReelPage> {
   }
 }
 
-class _MuteButton extends StatelessWidget {
-  const _MuteButton({required this.muted, required this.onTap});
+/// Sevak (Follow, docs/PRD.md §6) — "joining a creator's circle," so it
+/// sits with the creator's own name rather than in the reel-scoped
+/// InteractionRail alongside Pranam/Satsang/Prasad/Smaran.
+class _SevakRow extends ConsumerStatefulWidget {
+  const _SevakRow({required this.reel, required this.onReelChanged});
 
-  final bool muted;
-  final VoidCallback onTap;
+  final Reel reel;
+  final ValueChanged<Reel> onReelChanged;
 
   @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.black45,
-      shape: const CircleBorder(),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(10),
-          child: Icon(
-            muted ? Icons.volume_off : Icons.volume_up,
-            color: Colors.white,
-            size: 22,
-          ),
-        ),
-      ),
-    );
-  }
+  ConsumerState<_SevakRow> createState() => _SevakRowState();
 }
 
-class _ReportButton extends StatelessWidget {
-  const _ReportButton({required this.onTap});
+class _SevakRowState extends ConsumerState<_SevakRow> {
+  bool _busy = false;
 
-  final VoidCallback onTap;
+  Future<void> _toggle() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final active = await ref
+          .read(socialApiClientProvider)
+          .toggleSevak(widget.reel.creatorId);
+      if (!mounted) return;
+      widget
+          .onReelChanged(widget.reel.copyWith(viewerFollowingCreator: active));
+    } catch (e) {
+      if (!mounted) return;
+      final message =
+          e is HttpException ? e.message : "Couldn't complete that. Try again.";
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.black45,
-      shape: const CircleBorder(),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onTap,
-        child: const Padding(
-          padding: EdgeInsets.all(10),
-          child: Icon(Icons.flag_outlined, color: Colors.white, size: 22),
+    final following = widget.reel.viewerFollowingCreator;
+    final myUserId = ref.watch(authControllerProvider.select((s) => s.userId));
+    final isOwnReel = myUserId != null && myUserId == widget.reel.creatorId;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(
+          child: Text(
+            widget.reel.creatorDisplayName ?? 'A fellow devotee',
+            style: const TextStyle(
+                color: Colors.white, fontWeight: FontWeight.w600),
+            overflow: TextOverflow.ellipsis,
+          ),
         ),
-      ),
+        const SizedBox(width: 8),
+        // A creator viewing their own reel gets no Sevak control at all —
+        // ErrCannotFollowSelf would just reject it server-side anyway, so
+        // there's nothing useful to show here.
+        if (!isOwnReel)
+          Semantics(
+            button: true,
+            label: following ? 'Unfollow this creator' : 'Follow this creator',
+            child: GestureDetector(
+              onTap: _busy ? null : _toggle,
+              child: Opacity(
+                opacity: _busy ? 0.5 : 1,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SevakIcon(
+                      filled: following,
+                      color: following ? AnhadColors.accentDiya : Colors.white,
+                      size: 16,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      following ? 'Following' : 'Follow',
+                      style: TextStyle(
+                        color:
+                            following ? AnhadColors.accentDiya : Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

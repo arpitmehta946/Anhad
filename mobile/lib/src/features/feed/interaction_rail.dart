@@ -1,0 +1,245 @@
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:share_plus/share_plus.dart' show Share;
+
+import '../../theme/anhad_icons.dart';
+import '../../theme/colors.dart';
+import 'data/reel.dart';
+import 'data/reel_category.dart';
+import 'satsang_sheet.dart';
+import 'social_provider.dart';
+
+/// The right-side action rail holding the four reel-scoped P0 renamed
+/// interactions (docs/PRD.md §6/§7.2) — Pranam, Satsang, Prasad, Smaran —
+/// each a custom icon (docs/FRONTEND_GUIDELINES.md §7) labelled with its
+/// poetic name and live count beneath. The label is what makes a shape a
+/// first-time viewer has never seen before legible without falling back to
+/// a generic heart/bubble/paper-plane icon (which §7 is explicit the custom
+/// shapes themselves are meant to avoid) — the screen-reader label stays
+/// purely functional ("Like this reel," never "Pranam this reel") so the
+/// two never conflict. Report and Mute (not renamed interactions — they're
+/// moderation/playback controls, not part of docs/PRD.md §6's vocabulary)
+/// stay icon-only in this same rail, so the whole set of per-reel actions
+/// lives in one place without every control competing for label space —
+/// this mirrors the vertical action-rail convention Reels/Shorts already
+/// established (docs/FRONTEND_GUIDELINES.md §4), just with names attached.
+class InteractionRail extends ConsumerWidget {
+  const InteractionRail({
+    super.key,
+    required this.reel,
+    required this.onReelChanged,
+    required this.muted,
+    required this.onToggleMute,
+    required this.onReport,
+  });
+
+  final Reel reel;
+  final ValueChanged<Reel> onReelChanged;
+  final bool muted;
+  final VoidCallback onToggleMute;
+  final VoidCallback onReport;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _RailButton(
+          icon: PranamIcon(
+              filled: reel.viewerPranamed,
+              color: _pranamColor(reel.viewerPranamed),
+              size: 26),
+          label: 'Pranam',
+          count: reel.pranamCount,
+          semanticLabel:
+              reel.viewerPranamed ? 'Unlike this reel' : 'Like this reel',
+          onTap: () => _togglePranam(context, ref),
+        ),
+        const SizedBox(height: 14),
+        _RailButton(
+          icon: const SatsangIcon(filled: false, color: Colors.white, size: 24),
+          label: 'Satsang',
+          count: reel.satsangCount,
+          semanticLabel: 'View comments',
+          onTap: () => _openSatsang(context, ref),
+        ),
+        const SizedBox(height: 14),
+        _RailButton(
+          icon: const PrasadIcon(filled: false, color: Colors.white, size: 24),
+          label: 'Prasad',
+          count: reel.prasadCount,
+          semanticLabel: 'Share this reel',
+          onTap: () => _share(context, ref),
+        ),
+        const SizedBox(height: 14),
+        _RailButton(
+          icon: SmaranIcon(
+              filled: reel.viewerSmaraned,
+              color: _smaranColor(reel.viewerSmaraned),
+              size: 24),
+          label: 'Smaran',
+          count: reel.smaranCount,
+          semanticLabel:
+              reel.viewerSmaraned ? 'Remove from saved' : 'Save this reel',
+          onTap: () => _toggleSmaran(context, ref),
+        ),
+        const SizedBox(height: 18),
+        _RailButton(
+          icon: const Icon(Icons.flag_outlined, color: Colors.white, size: 22),
+          semanticLabel: 'Report this reel',
+          onTap: onReport,
+        ),
+        const SizedBox(height: 14),
+        _RailButton(
+          icon: Icon(muted ? Icons.volume_off : Icons.volume_up,
+              color: Colors.white, size: 22),
+          semanticLabel: muted ? 'Unmute' : 'Mute',
+          onTap: onToggleMute,
+        ),
+      ],
+    );
+  }
+
+  Color _pranamColor(bool active) =>
+      active ? AnhadColors.accentDiya : Colors.white;
+  Color _smaranColor(bool active) =>
+      active ? AnhadColors.accentDiya : Colors.white;
+
+  Future<void> _togglePranam(BuildContext context, WidgetRef ref) async {
+    try {
+      final result =
+          await ref.read(socialApiClientProvider).togglePranam(reel.id);
+      onReelChanged(reel.copyWith(
+          viewerPranamed: result.active, pranamCount: result.count));
+    } catch (e) {
+      if (!context.mounted) return;
+      _showError(context, e);
+    }
+  }
+
+  Future<void> _toggleSmaran(BuildContext context, WidgetRef ref) async {
+    try {
+      final result =
+          await ref.read(socialApiClientProvider).toggleSmaran(reel.id);
+      onReelChanged(reel.copyWith(
+          viewerSmaraned: result.active, smaranCount: result.count));
+    } catch (e) {
+      if (!context.mounted) return;
+      _showError(context, e);
+    }
+  }
+
+  Future<void> _share(BuildContext context, WidgetRef ref) async {
+    // Prasad is "distributing something blessed" (docs/PRD.md §6) — a real
+    // hand-off to the OS share sheet, not just a backend counter bump. The
+    // count still only reflects a share actually recorded server-side, so
+    // it stays accurate even if the user backs out of the OS share sheet
+    // without picking a target.
+    final caption = reel.caption;
+    final text = caption != null && caption.isNotEmpty
+        ? '$caption — a ${reelCategoryLabel(reel.category)} on Anhad\n${reel.videoUrl}'
+        : 'A ${reelCategoryLabel(reel.category)} on Anhad\n${reel.videoUrl}';
+    try {
+      await Share.share(text);
+      final count =
+          await ref.read(socialApiClientProvider).recordPrasad(reel.id);
+      onReelChanged(reel.copyWith(prasadCount: count));
+    } catch (e) {
+      if (!context.mounted) return;
+      _showError(context, e);
+    }
+  }
+
+  Future<void> _openSatsang(BuildContext context, WidgetRef ref) async {
+    final freshCount = await showSatsangSheet(context, ref, reel);
+    if (freshCount != null) {
+      onReelChanged(reel.copyWith(satsangCount: freshCount));
+    }
+  }
+
+  void _showError(BuildContext context, Object e) {
+    if (!context.mounted) return;
+    final message =
+        e is HttpException ? e.message : "Couldn't complete that. Try again.";
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
+}
+
+class _RailButton extends StatelessWidget {
+  const _RailButton({
+    required this.icon,
+    required this.semanticLabel,
+    required this.onTap,
+    this.label,
+    this.count,
+  });
+
+  final Widget icon;
+  final String semanticLabel;
+  final VoidCallback onTap;
+  // The poetic name shown under the icon (Pranam/Satsang/Prasad/Smaran) —
+  // distinct from [semanticLabel], which stays functional for screen
+  // readers regardless of whether this is set (docs/FRONTEND_GUIDELINES.md
+  // §7). Report/Mute pass null: they're utility controls, not part of the
+  // renamed vocabulary, so they stay icon-only.
+  final String? label;
+  final int? count;
+
+  static const _textShadows = [Shadow(color: Colors.black54, blurRadius: 3)];
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: semanticLabel,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                icon,
+                if (label != null) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    label!,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      shadows: _textShadows,
+                    ),
+                  ),
+                ],
+                if (count != null && count! > 0) ...[
+                  const SizedBox(height: 1),
+                  Text(
+                    _formatCount(count!),
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 10,
+                      shadows: _textShadows,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _formatCount(int count) {
+    if (count < 1000) return '$count';
+    if (count < 100000) return '${(count / 1000).toStringAsFixed(1)}k';
+    return '${(count / 1000).round()}k';
+  }
+}

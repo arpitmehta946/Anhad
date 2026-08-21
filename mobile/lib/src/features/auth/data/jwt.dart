@@ -50,6 +50,28 @@ String? jwtRole(String token) {
   }
 }
 
+/// Reads the `sub` claim (the user's own id) — same "not verifying the
+/// signature" caveat as [jwtExpiry]. Used to tell "this is my own reel"
+/// apart from everyone else's client-side (e.g. hiding the Sevak/follow
+/// control on your own content, docs/PRD.md §6) — server-side enforcement
+/// of the same rule already exists independently
+/// (internal/social.ErrCannotFollowSelf), so a stale/spoofed value here
+/// can only ever mis-show a button, never actually let anyone follow
+/// themselves.
+String? jwtUserId(String token) {
+  final parts = token.split('.');
+  if (parts.length != 3) return null;
+  try {
+    final payload = jsonDecode(
+      utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))),
+    );
+    final sub = payload['sub'];
+    return sub is String ? sub : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 /// Reads the `is_moderator` claim — same caveats as [jwtRole]: UI-only
 /// (shows/hides the moderation queue entry point), never the real
 /// enforcement, which is api/internal/server/moderation.go's

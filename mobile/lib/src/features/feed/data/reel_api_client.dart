@@ -41,9 +41,13 @@ class FeedPage {
 
 /// Talks to the reel upload/feed endpoints
 /// (api/internal/server/reels.go). Mirrors JapaApiClient's shape: the
-/// bearer token is resolved lazily per call via [tokenProvider], and
-/// [listFeed] deliberately never calls it — the feed itself is
-/// unauthenticated (docs/PRD.md: viewers browse for free).
+/// bearer token is resolved lazily per call via [tokenProvider]. [listFeed]
+/// stays reachable with no token at all — the feed itself is unauthenticated
+/// (docs/PRD.md: viewers browse for free) — but does attach one when a
+/// session exists, best-effort, so a signed-in viewer's own Pranam/Smaran/
+/// Sevak state comes back on each reel (server/auth.go's optionalAuth,
+/// server/reels.go's reelJSON) instead of every reel silently rendering as
+/// not-yet-pranam'd/smaran'd/followed regardless of the viewer's real state.
 class ReelApiClient {
   ReelApiClient({required this.baseUrl, required this.tokenProvider});
 
@@ -115,7 +119,14 @@ class ReelApiClient {
       if (cursor != null) 'cursor': cursor,
     };
     final uri = Uri.parse('$baseUrl/v1/reels').replace(queryParameters: query.isEmpty ? null : query);
-    final response = await http.get(uri);
+    // Best-effort, not required: a missing/expired token still loads the
+    // feed (tokenProvider returning null is the normal, expected case for
+    // an anonymous viewer, not an error), just without viewer_* state.
+    final token = await tokenProvider();
+    final response = await http.get(
+      uri,
+      headers: token != null ? {'Authorization': 'Bearer $token'} : null,
+    );
     if (response.statusCode != 200) {
       throw HttpException(_errorMessage(response));
     }

@@ -156,6 +156,33 @@ func requireAuth(authSvc *auth.Service) func(http.Handler) http.Handler {
 	}
 }
 
+// optionalAuth is requireAuth's non-blocking sibling: a present-and-valid
+// bearer token still injects claims exactly the same way, but a missing or
+// invalid one just proceeds unauthenticated rather than rejecting the
+// request. Exists for listFeedHandler — the feed itself stays free to
+// browse (docs/PRD.md's own pitch), but a signed-in viewer scrolling it
+// should still see their own Pranam/Smaran/Sevak state on each reel
+// (docs/PRD.md §6) without a second round trip, which requires knowing who
+// they are when we can.
+func optionalAuth(authSvc *auth.Service) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			const prefix = "Bearer "
+			header := r.Header.Get("Authorization")
+			if !strings.HasPrefix(header, prefix) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			claims, err := authSvc.ParseAccessToken(strings.TrimPrefix(header, prefix))
+			if err != nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(auth.ContextWithClaims(r.Context(), claims)))
+		})
+	}
+}
+
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

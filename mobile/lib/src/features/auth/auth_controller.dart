@@ -19,6 +19,7 @@ class AuthState {
     this.error,
     this.role,
     this.isModerator = false,
+    this.userId,
   });
 
   /// True until the stored-session check on app start resolves — the app
@@ -47,6 +48,13 @@ class AuthState {
   /// (api/internal/server/moderation.go's requireModerator).
   final bool isModerator;
 
+  /// Decoded from the access token (data/jwt.dart's jwtUserId) — same
+  /// UI-only caveat as [role]/[isModerator]: lets the UI recognize "this is
+  /// my own reel" (e.g. hiding the Sevak/follow control on it), never the
+  /// real enforcement, which is internal/social.ErrCannotFollowSelf
+  /// server-side.
+  final String? userId;
+
   bool get isCreator => role == 'creator';
 
   AuthState copyWith({
@@ -59,6 +67,7 @@ class AuthState {
     bool clearError = false,
     String? role,
     bool? isModerator,
+    String? userId,
   }) {
     return AuthState(
       checkingSession: checkingSession ?? this.checkingSession,
@@ -68,6 +77,7 @@ class AuthState {
       error: clearError ? null : (error ?? this.error),
       role: role ?? this.role,
       isModerator: isModerator ?? this.isModerator,
+      userId: userId ?? this.userId,
     );
   }
 }
@@ -105,6 +115,7 @@ class AuthController extends StateNotifier<AuthState> {
       isAuthenticated: refreshToken != null,
       role: accessToken != null ? jwtRole(accessToken) : null,
       isModerator: accessToken != null && jwtIsModerator(accessToken),
+      userId: accessToken != null ? jwtUserId(accessToken) : null,
     );
   }
 
@@ -116,7 +127,8 @@ class AuthController extends StateNotifier<AuthState> {
       state = state.copyWith(isSubmitting: false, phoneNumber: phoneNumber);
     } catch (e, stackTrace) {
       if (!mounted) return;
-      state = state.copyWith(isSubmitting: false, error: _describe(e, stackTrace));
+      state =
+          state.copyWith(isSubmitting: false, error: _describe(e, stackTrace));
     }
   }
 
@@ -137,10 +149,12 @@ class AuthController extends StateNotifier<AuthState> {
         isAuthenticated: true,
         role: jwtRole(tokens.accessToken),
         isModerator: jwtIsModerator(tokens.accessToken),
+        userId: jwtUserId(tokens.accessToken),
       );
     } catch (e, stackTrace) {
       if (!mounted) return;
-      state = state.copyWith(isSubmitting: false, error: _describe(e, stackTrace));
+      state =
+          state.copyWith(isSubmitting: false, error: _describe(e, stackTrace));
     }
   }
 
@@ -184,6 +198,7 @@ class AuthController extends StateNotifier<AuthState> {
         state = state.copyWith(
           role: jwtRole(tokens.accessToken),
           isModerator: jwtIsModerator(tokens.accessToken),
+          userId: jwtUserId(tokens.accessToken),
         );
       }
       return tokens.accessToken;

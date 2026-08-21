@@ -14,6 +14,7 @@ import (
 	"github.com/anhad/api/internal/japa"
 	"github.com/anhad/api/internal/moderation"
 	"github.com/anhad/api/internal/reels"
+	"github.com/anhad/api/internal/social"
 	"github.com/anhad/api/internal/store"
 )
 
@@ -64,6 +65,7 @@ func New(cfg *config.Config, logger *slog.Logger, st *store.Store) (*http.Server
 
 	reelsSvc := reels.NewService(st, videoStorage, enqueuer, logger)
 	moderationSvc := moderation.NewService(st)
+	socialSvc := social.NewService(st)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthHandler(logger, st))
@@ -78,8 +80,20 @@ func New(cfg *config.Config, logger *slog.Logger, st *store.Store) (*http.Server
 		requireAuth(authSvc)(requireRole("creator")(createUploadTargetHandler(logger, reelsSvc))))
 	mux.Handle("POST /v1/reels",
 		requireAuth(authSvc)(requireRole("creator")(createReelHandler(logger, reelsSvc))))
-	// Deliberately outside requireAuth — see listFeedHandler's doc.
-	mux.HandleFunc("GET /v1/reels", listFeedHandler(logger, reelsSvc))
+	// optionalAuth, not requireAuth or no-auth-at-all — see listFeedHandler's
+	// doc for why the feed still resolves claims when a token is present.
+	mux.Handle("GET /v1/reels", optionalAuth(authSvc)(listFeedHandler(logger, reelsSvc, socialSvc)))
+
+	// The P0 renamed interactions (docs/PRD.md §6/§7.2): Pranam, Smaran, and
+	// Sevak are toggles; Prasad just records a share; Satsang read is public
+	// like the feed itself (optionalAuth would add nothing here since
+	// listSatsangHandler never uses viewer identity), write requires auth.
+	mux.Handle("POST /v1/reels/{id}/pranam", requireAuth(authSvc)(pranamHandler(logger, socialSvc)))
+	mux.Handle("POST /v1/reels/{id}/smaran", requireAuth(authSvc)(smaranHandler(logger, socialSvc)))
+	mux.Handle("POST /v1/reels/{id}/prasad", requireAuth(authSvc)(prasadHandler(logger, socialSvc)))
+	mux.Handle("POST /v1/reels/{id}/satsang", requireAuth(authSvc)(postSatsangHandler(logger, socialSvc)))
+	mux.HandleFunc("GET /v1/reels/{id}/satsang", listSatsangHandler(logger, socialSvc))
+	mux.Handle("POST /v1/users/{id}/sevak", requireAuth(authSvc)(sevakHandler(logger, socialSvc)))
 
 	mux.Handle("POST /v1/reels/{id}/reports",
 		requireAuth(authSvc)(submitReportHandler(logger, moderationSvc)))
