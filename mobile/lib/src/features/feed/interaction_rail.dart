@@ -2,12 +2,13 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:share_plus/share_plus.dart' show Share;
+import 'package:share_plus/share_plus.dart' show Share, ShareResultStatus;
 
 import '../../theme/anhad_icons.dart';
 import '../../theme/colors.dart';
 import 'data/reel.dart';
 import 'data/reel_category.dart';
+import 'jugalbandi/jugalbandi_record_screen.dart';
 import 'satsang_sheet.dart';
 import 'social_provider.dart';
 
@@ -73,6 +74,19 @@ class InteractionRail extends ConsumerWidget {
           semanticLabel: 'Share this reel',
           onTap: () => _share(context, ref),
         ),
+        // Hidden rather than shown-disabled when the source creator has
+        // turned Jugalbandi off (docs/PRD.md §4.5/§7.2) — a visible-but-
+        // dead button invites "why won't this work," a missing one
+        // doesn't.
+        if (reel.jugalbandiEnabled) ...[
+          const SizedBox(height: 14),
+          _RailButton(
+            icon: const JugalbandiIcon(color: Colors.white, size: 24),
+            label: 'Jugalbandi',
+            semanticLabel: 'Record a duet alongside this reel',
+            onTap: () => _openJugalbandi(context),
+          ),
+        ],
         const SizedBox(height: 14),
         _RailButton(
           icon: SmaranIcon(
@@ -134,15 +148,19 @@ class InteractionRail extends ConsumerWidget {
   Future<void> _share(BuildContext context, WidgetRef ref) async {
     // Prasad is "distributing something blessed" (docs/PRD.md §6) — a real
     // hand-off to the OS share sheet, not just a backend counter bump. The
-    // count still only reflects a share actually recorded server-side, so
-    // it stays accurate even if the user backs out of the OS share sheet
-    // without picking a target.
+    // count only records once the share sheet itself reports a completed
+    // share (ShareResultStatus.success) — Android and iOS both report
+    // this. Backing out of the sheet (.dismissed) or a platform that can't
+    // report an outcome at all (.unavailable) must NOT count: a share
+    // count that includes non-shares is worse than no count, since
+    // creators read it as real reach.
     final caption = reel.caption;
     final text = caption != null && caption.isNotEmpty
         ? '$caption — a ${reelCategoryLabel(reel.category)} on Anhad\n${reel.videoUrl}'
         : 'A ${reelCategoryLabel(reel.category)} on Anhad\n${reel.videoUrl}';
     try {
-      await Share.share(text);
+      final result = await Share.share(text);
+      if (result.status != ShareResultStatus.success) return;
       final count =
           await ref.read(socialApiClientProvider).recordPrasad(reel.id);
       onReelChanged(reel.copyWith(prasadCount: count));
@@ -150,6 +168,13 @@ class InteractionRail extends ConsumerWidget {
       if (!context.mounted) return;
       _showError(context, e);
     }
+  }
+
+  void _openJugalbandi(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+          builder: (_) => JugalbandiRecordScreen(sourceReel: reel)),
+    );
   }
 
   Future<void> _openSatsang(BuildContext context, WidgetRef ref) async {

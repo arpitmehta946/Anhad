@@ -80,6 +80,8 @@ func New(cfg *config.Config, logger *slog.Logger, st *store.Store) (*http.Server
 		requireAuth(authSvc)(requireRole("creator")(createUploadTargetHandler(logger, reelsSvc))))
 	mux.Handle("POST /v1/reels",
 		requireAuth(authSvc)(requireRole("creator")(createReelHandler(logger, reelsSvc))))
+	mux.Handle("POST /v1/reels/{id}/jugalbandi",
+		requireAuth(authSvc)(requireRole("creator")(createJugalbandiHandler(logger, reelsSvc))))
 	// optionalAuth, not requireAuth or no-auth-at-all — see listFeedHandler's
 	// doc for why the feed still resolves claims when a token is present.
 	mux.Handle("GET /v1/reels", optionalAuth(authSvc)(listFeedHandler(logger, reelsSvc, socialSvc)))

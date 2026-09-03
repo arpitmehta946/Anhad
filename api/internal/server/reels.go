@@ -37,12 +37,66 @@ func createUploadTargetHandler(logger *slog.Logger, reelsSvc *reels.Service) htt
 // createReelHandler finalizes an already-uploaded video into a reel —
 // category is mandatory (docs/PRD.md §4.1), and the row always lands
 // PENDING regardless of anything the client sends (reels.Service.CreateReel
-// doesn't accept a status from the caller at all).
+// doesn't accept a status from the caller at all). jugalbandi_enabled is
+// optional — omitted/null means "use the default for my account"
+// (reels.Service.CreateReel/insertReelTx's own doc explains how that
+// default is resolved).
 func createReelHandler(logger *slog.Logger, reelsSvc *reels.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := auth.ClaimsFromContext(r.Context())
 		if !ok {
 			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+
+		var req struct {
+			VideoID           string  `json:"video_id"`
+			Category          string  `json:"category"`
+			Caption           *string `json:"caption"`
+			JugalbandiEnabled *bool   `json:"jugalbandi_enabled"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if req.VideoID == "" || req.Category == "" {
+			writeError(w, http.StatusBadRequest, "video_id and category are required")
+			return
+		}
+
+		reel, err := reelsSvc.CreateReel(r.Context(), claims.Subject, req.VideoID, req.Category, req.Caption, req.JugalbandiEnabled)
+		switch {
+		case err == nil:
+			// A brand new reel has no engagement yet and its own creator
+			// can't pranam/smaran/sevak it (ErrCannotFollowSelf's whole
+			// point) — false/false/false is the only correct viewer state.
+			writeJSON(w, http.StatusCreated, reelJSON(reel, false, false, false))
+		case errors.Is(err, reels.ErrInvalidCategory):
+			writeError(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, reels.ErrUploadNotReady):
+			writeError(w, http.StatusConflict, err.Error())
+		default:
+			logger.Error("create reel failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to create reel")
+		}
+	}
+}
+
+// createJugalbandiHandler finalizes an already-uploaded video into a duet
+// result recorded alongside the reel named in the path (docs/PRD.md §7.2)
+// — same shape as createReelHandler, minus the Jugalbandi-toggle field
+// (which only makes sense on the reel granting/denying duets, not the one
+// being recorded against it).
+func createJugalbandiHandler(logger *slog.Logger, reelsSvc *reels.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		claims, ok := auth.ClaimsFromContext(r.Context())
+		if !ok {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		sourceReelID := r.PathValue("id")
+		if sourceReelID == "" {
+			writeError(w, http.StatusBadRequest, "reel id required")
 			return
 		}
 
@@ -60,20 +114,23 @@ func createReelHandler(logger *slog.Logger, reelsSvc *reels.Service) http.Handle
 			return
 		}
 
-		reel, err := reelsSvc.CreateReel(r.Context(), claims.Subject, req.VideoID, req.Category, req.Caption)
+		reel, err := reelsSvc.CreateJugalbandi(r.Context(), claims.Subject, sourceReelID, req.VideoID, req.Category, req.Caption)
 		switch {
 		case err == nil:
-			// A brand new reel has no engagement yet and its own creator
-			// can't pranam/smaran/sevak it (ErrCannotFollowSelf's whole
-			// point) — false/false/false is the only correct viewer state.
 			writeJSON(w, http.StatusCreated, reelJSON(reel, false, false, false))
 		case errors.Is(err, reels.ErrInvalidCategory):
 			writeError(w, http.StatusBadRequest, err.Error())
 		case errors.Is(err, reels.ErrUploadNotReady):
 			writeError(w, http.StatusConflict, err.Error())
+		case errors.Is(err, reels.ErrSourceReelNotFound):
+			writeError(w, http.StatusNotFound, err.Error())
+		case errors.Is(err, reels.ErrSourceReelNotApproved):
+			writeError(w, http.StatusConflict, err.Error())
+		case errors.Is(err, reels.ErrJugalbandiDisabled):
+			writeError(w, http.StatusForbidden, err.Error())
 		default:
-			logger.Error("create reel failed", "error", err)
-			writeError(w, http.StatusInternalServerError, "failed to create reel")
+			logger.Error("create jugalbandi failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to create jugalbandi")
 		}
 	}
 }
@@ -163,6 +220,8 @@ func reelJSON(reel *reels.Reel, viewerPranamed, viewerSmaraned, viewerFollowingC
 		"viewer_pranamed":          viewerPranamed,
 		"viewer_smaraned":          viewerSmaraned,
 		"viewer_following_creator": viewerFollowingCreator,
+		"jugalbandi_enabled":       reel.JugalbandiEnabled,
+		"jugalbandi_reuse_count":   reel.JugalbandiReuseCount,
 		"created_at":               reel.CreatedAt,
 	}
 	if reel.Caption != nil {
@@ -170,6 +229,25 @@ func reelJSON(reel *reels.Reel, viewerPranamed, viewerSmaraned, viewerFollowingC
 	}
 	if reel.CreatorDisplayName != nil {
 		m["creator_display_name"] = *reel.CreatorDisplayName
+	}
+	// The jugalbandi_source_* fields are only ever present together — this
+	// reel either is a duet result (source reel found, attribution
+	// complete) or it isn't (jugalbandi_source_id was NULL, every field in
+	// this block is nil) — never a partial set.
+	if reel.JugalbandiSourceID != nil {
+		m["jugalbandi_source_id"] = *reel.JugalbandiSourceID
+		if reel.JugalbandiSourceVideoURL != nil {
+			m["jugalbandi_source_video_url"] = *reel.JugalbandiSourceVideoURL
+		}
+		if reel.JugalbandiSourceCaption != nil {
+			m["jugalbandi_source_caption"] = *reel.JugalbandiSourceCaption
+		}
+		if reel.JugalbandiSourceCreatorID != nil {
+			m["jugalbandi_source_creator_id"] = *reel.JugalbandiSourceCreatorID
+		}
+		if reel.JugalbandiSourceCreatorDisplayName != nil {
+			m["jugalbandi_source_creator_display_name"] = *reel.JugalbandiSourceCreatorDisplayName
+		}
 	}
 	return m
 }

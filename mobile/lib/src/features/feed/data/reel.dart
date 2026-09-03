@@ -10,6 +10,14 @@
 /// (api/internal/server/auth.go's optionalAuth) — an anonymous fetch always
 /// gets `false` back for all three, which reads correctly either way: an
 /// anonymous viewer hasn't pranam'd/smaran'd/followed anything either.
+///
+/// The `jugalbandi*` fields back Jugalbandi (remix/duet, docs/PRD.md §7.2).
+/// `jugalbandiEnabled` is this reel's own permission — whether *other*
+/// people can record a duet against it. `jugalbandiSourceId` and the
+/// `jugalbandiSource*` fields are the opposite direction: only set when
+/// this reel itself IS a duet result, carrying just enough about the
+/// original (its video, caption, creator) to render the side-by-side
+/// playback and attribution without a second request.
 class Reel {
   const Reel({
     required this.id,
@@ -25,8 +33,15 @@ class Reel {
     required this.viewerPranamed,
     required this.viewerSmaraned,
     required this.viewerFollowingCreator,
+    required this.jugalbandiEnabled,
+    required this.jugalbandiReuseCount,
     this.caption,
     this.creatorDisplayName,
+    this.jugalbandiSourceId,
+    this.jugalbandiSourceVideoUrl,
+    this.jugalbandiSourceCaption,
+    this.jugalbandiSourceCreatorId,
+    this.jugalbandiSourceCreatorDisplayName,
   });
 
   factory Reel.fromJson(Map<String, dynamic> json) => Reel(
@@ -45,6 +60,17 @@ class Reel {
         viewerSmaraned: json['viewer_smaraned'] as bool? ?? false,
         viewerFollowingCreator:
             json['viewer_following_creator'] as bool? ?? false,
+        jugalbandiEnabled: json['jugalbandi_enabled'] as bool? ?? true,
+        jugalbandiReuseCount:
+            (json['jugalbandi_reuse_count'] as num?)?.toInt() ?? 0,
+        jugalbandiSourceId: json['jugalbandi_source_id'] as String?,
+        jugalbandiSourceVideoUrl:
+            json['jugalbandi_source_video_url'] as String?,
+        jugalbandiSourceCaption: json['jugalbandi_source_caption'] as String?,
+        jugalbandiSourceCreatorId:
+            json['jugalbandi_source_creator_id'] as String?,
+        jugalbandiSourceCreatorDisplayName:
+            json['jugalbandi_source_creator_display_name'] as String?,
         createdAt: DateTime.parse(json['created_at'] as String),
       );
 
@@ -62,9 +88,21 @@ class Reel {
   final bool viewerPranamed;
   final bool viewerSmaraned;
   final bool viewerFollowingCreator;
+  final bool jugalbandiEnabled;
+  final int jugalbandiReuseCount;
+  final String? jugalbandiSourceId;
+  final String? jugalbandiSourceVideoUrl;
+  final String? jugalbandiSourceCaption;
+  final String? jugalbandiSourceCreatorId;
+  final String? jugalbandiSourceCreatorDisplayName;
   final DateTime createdAt;
 
   bool get reflectionOnly => commentsMode == 'reflection_only';
+
+  /// True when this reel is itself a Jugalbandi (duet) result — the source
+  /// fields are only ever all-present or all-absent together (see this
+  /// class's own doc), so checking the id alone is enough.
+  bool get isJugalbandi => jugalbandiSourceId != null;
 
   /// Returns a copy with the locally-known-fresher engagement fields
   /// swapped in — used right after a Pranam/Smaran/Sevak toggle or a
@@ -96,6 +134,13 @@ class Reel {
       viewerSmaraned: viewerSmaraned ?? this.viewerSmaraned,
       viewerFollowingCreator:
           viewerFollowingCreator ?? this.viewerFollowingCreator,
+      jugalbandiEnabled: jugalbandiEnabled,
+      jugalbandiReuseCount: jugalbandiReuseCount,
+      jugalbandiSourceId: jugalbandiSourceId,
+      jugalbandiSourceVideoUrl: jugalbandiSourceVideoUrl,
+      jugalbandiSourceCaption: jugalbandiSourceCaption,
+      jugalbandiSourceCreatorId: jugalbandiSourceCreatorId,
+      jugalbandiSourceCreatorDisplayName: jugalbandiSourceCreatorDisplayName,
     );
   }
 }

@@ -8,8 +8,9 @@
 /// Every icon shares the same two-state shape: a thin outline when
 /// inactive, the same path filled solid when active — mirroring how a
 /// standard like/heart icon communicates state, but with Anhad's own
-/// vocabulary of shapes instead. Jugalbandi (remix/duet, P1) has no icon
-/// here — it isn't built yet (docs/PRD.md §7.2).
+/// vocabulary of shapes instead. Jugalbandi (remix/duet) is the exception —
+/// it opens a recording flow rather than toggling a state, so it's always
+/// drawn as the same line icon regardless of the `filled` flag.
 library;
 
 import 'dart:math';
@@ -303,4 +304,56 @@ class _SevakPainter extends CustomPainter {
   bool shouldRepaint(covariant _SevakPainter oldDelegate) =>
       oldDelegate.style.filled != style.filled ||
       oldDelegate.style.color != style.color;
+}
+
+/// Jugalbandi (Remix/Duet) — two interlocking curved lines suggesting two
+/// voices in accompaniment (docs/FRONTEND_GUIDELINES.md §7), not a literal
+/// instrument. Always drawn as a stroked line icon — see this file's own
+/// top-of-file doc for why the usual filled/outline duality doesn't apply
+/// here.
+class JugalbandiIcon extends StatelessWidget {
+  const JugalbandiIcon(
+      {super.key, this.color = const Color(0xFFFFFFFF), this.size = 24});
+
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      size: Size.square(size),
+      painter: _JugalbandiPainter(color),
+    );
+  }
+}
+
+class _JugalbandiPainter extends CustomPainter {
+  _JugalbandiPainter(this.color);
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width, h = size.height;
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.7
+      ..strokeCap = StrokeCap.round;
+
+    // Two mirrored S-curves crossing through the center — one voice
+    // answering the other, not two straight lines just overlapping.
+    final left = Path()
+      ..moveTo(w * 0.22, h * 0.16)
+      ..cubicTo(w * 0.62, h * 0.16, w * 0.22, h * 0.84, w * 0.78, h * 0.84);
+    final right = Path()
+      ..moveTo(w * 0.78, h * 0.16)
+      ..cubicTo(w * 0.38, h * 0.16, w * 0.78, h * 0.84, w * 0.22, h * 0.84);
+
+    canvas.drawPath(left, paint);
+    canvas.drawPath(right, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _JugalbandiPainter oldDelegate) =>
+      oldDelegate.color != color;
 }

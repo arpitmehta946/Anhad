@@ -16,6 +16,7 @@ import '../onboarding/save_practice_screen.dart';
 import 'data/reel.dart';
 import 'data/reel_category.dart';
 import 'interaction_rail.dart';
+import 'satsang_sheet.dart';
 import 'social_provider.dart';
 import 'upload/upload_reel_provider.dart';
 import 'upload/upload_reel_screen.dart';
@@ -362,6 +363,12 @@ class _ReelPageState extends State<_ReelPage> {
   // a reel audible behind a screen meant for eyes-closed chanting). A
   // disposed player has no audio focus to regain and cannot do that.
   VideoPlayerController? _controller;
+  // Only ever non-null for a Jugalbandi (duet) result — plays the source
+  // reel's own video alongside this one (docs/PRD.md §7.2). There's no
+  // server-side compositing (JugalbandiRecordScreen's own doc explains
+  // why), so the side-by-side view is exactly two independently-loaded
+  // players, started/stopped/muted together by this state class.
+  VideoPlayerController? _sourceController;
   bool _ready = false;
 
   @override
@@ -376,18 +383,35 @@ class _ReelPageState extends State<_ReelPage> {
           ..setLooping(true)
           ..setVolume(widget.muted ? 0 : 1);
     _controller = controller;
-    controller.initialize().then((_) {
+
+    final sourceUrl = widget.reel.jugalbandiSourceVideoUrl;
+    VideoPlayerController? sourceController;
+    if (sourceUrl != null) {
+      sourceController = VideoPlayerController.networkUrl(Uri.parse(sourceUrl))
+        ..setLooping(true)
+        ..setVolume(widget.muted ? 0 : 1);
+      _sourceController = sourceController;
+    }
+
+    Future.wait([
+      controller.initialize(),
+      if (sourceController != null) sourceController.initialize(),
+    ]).then((_) {
       if (!mounted || _controller != controller) return;
       setState(() => _ready = true);
       controller.play();
+      sourceController?.play();
     });
   }
 
   void _stopController() {
     final controller = _controller;
+    final sourceController = _sourceController;
     _controller = null;
+    _sourceController = null;
     _ready = false;
     controller?.dispose();
+    sourceController?.dispose();
   }
 
   @override
@@ -403,13 +427,23 @@ class _ReelPageState extends State<_ReelPage> {
     }
     if (widget.muted != oldWidget.muted) {
       _controller?.setVolume(widget.muted ? 0 : 1);
+      _sourceController?.setVolume(widget.muted ? 0 : 1);
     }
   }
 
   @override
   void dispose() {
     _controller?.dispose();
+    _sourceController?.dispose();
     super.dispose();
+  }
+
+  Future<void> _openSatsangFromCaption(
+      BuildContext context, WidgetRef ref) async {
+    final freshCount = await showSatsangSheet(context, ref, widget.reel);
+    if (freshCount != null) {
+      widget.onReelChanged(widget.reel.copyWith(satsangCount: freshCount));
+    }
   }
 
   @override
@@ -435,12 +469,37 @@ class _ReelPageState extends State<_ReelPage> {
         children: [
           Container(color: Colors.black),
           if (controller != null && _ready)
-            Center(
-              child: AspectRatio(
-                aspectRatio: controller.value.aspectRatio,
-                child: VideoPlayer(controller),
-              ),
-            )
+            _sourceController != null
+                // Jugalbandi (duet) — side by side, source on the left,
+                // this performer's own recording on the right, matching
+                // the layout instruction directly ("Instagram's duet").
+                ? Row(
+                    children: [
+                      Expanded(
+                        child: Center(
+                          child: AspectRatio(
+                            aspectRatio: _sourceController!.value.aspectRatio,
+                            child: VideoPlayer(_sourceController!),
+                          ),
+                        ),
+                      ),
+                      Container(width: 1, color: Colors.white24),
+                      Expanded(
+                        child: Center(
+                          child: AspectRatio(
+                            aspectRatio: controller.value.aspectRatio,
+                            child: VideoPlayer(controller),
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                : Center(
+                    child: AspectRatio(
+                      aspectRatio: controller.value.aspectRatio,
+                      child: VideoPlayer(controller),
+                    ),
+                  )
           else
             const Center(
               child: CircularProgressIndicator(color: AnhadColors.accentDiya),
@@ -460,6 +519,22 @@ class _ReelPageState extends State<_ReelPage> {
               children: [
                 _SevakRow(
                     reel: widget.reel, onReelChanged: widget.onReelChanged),
+                // Attribution for both creators (docs/PRD.md §7.2) — the
+                // performer is already the reel's own creator, credited
+                // above by _SevakRow; this line credits the other half of
+                // the duet, the source reel's own creator.
+                if (widget.reel.isJugalbandi) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    'Jugalbandi with '
+                    '${widget.reel.jugalbandiSourceCreatorDisplayName ?? 'a fellow devotee'}',
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 12,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 6),
                 Text(
                   reelCategoryLabel(widget.reel.category),
@@ -470,9 +545,18 @@ class _ReelPageState extends State<_ReelPage> {
                 ),
                 if (widget.reel.caption != null) ...[
                   const SizedBox(height: 4),
-                  Text(
-                    widget.reel.caption!,
-                    style: const TextStyle(color: Colors.white),
+                  // Tapping the caption also opens Satsang, same as the
+                  // Satsang icon in the rail — Instagram's own pattern for
+                  // the caption/comments relationship, and one less small
+                  // target to have to aim for on a full-bleed video.
+                  Consumer(
+                    builder: (context, ref, _) => GestureDetector(
+                      onTap: () => _openSatsangFromCaption(context, ref),
+                      child: Text(
+                        widget.reel.caption!,
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                    ),
                   ),
                 ],
               ],

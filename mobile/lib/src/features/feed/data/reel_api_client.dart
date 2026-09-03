@@ -75,13 +75,14 @@ class ReelApiClient {
   /// this method starts branching on [UploadTarget.uploadMethod]/a
   /// multipart body instead; nothing upstream of it needs to change.
   Future<void> uploadVideoFile(UploadTarget target, File file) async {
-    final request = http.StreamedRequest(target.uploadMethod, Uri.parse(target.uploadUrl));
+    final request =
+        http.StreamedRequest(target.uploadMethod, Uri.parse(target.uploadUrl));
     request.contentLength = await file.length();
     file.openRead().listen(
-      request.sink.add,
-      onDone: request.sink.close,
-      onError: request.sink.addError,
-    );
+          request.sink.add,
+          onDone: request.sink.close,
+          onError: request.sink.addError,
+        );
     final response = await http.Client().send(request);
     if (response.statusCode != 204) {
       final body = await response.stream.bytesToString();
@@ -89,14 +90,50 @@ class ReelApiClient {
     }
   }
 
+  /// jugalbandiEnabled is the creator's own per-reel Jugalbandi choice
+  /// (docs/PRD.md §4.5/§7.2) — null means "use the default for my
+  /// account" (api/internal/reels.Service.CreateReel's own doc explains
+  /// how the server resolves that).
   Future<Reel> createReel({
+    required String videoId,
+    required String category,
+    String? caption,
+    bool? jugalbandiEnabled,
+  }) async {
+    final token = await _requireToken();
+    final response = await http.post(
+      Uri.parse('$baseUrl/v1/reels'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+      body: jsonEncode({
+        'video_id': videoId,
+        'category': category,
+        if (caption != null && caption.isNotEmpty) 'caption': caption,
+        if (jugalbandiEnabled != null) 'jugalbandi_enabled': jugalbandiEnabled,
+      }),
+    );
+    if (response.statusCode != 201) {
+      throw HttpException(_errorMessage(response));
+    }
+    return Reel.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  /// Finalizes a Jugalbandi (duet) recording into a reel attributed to
+  /// both the performer (the caller) and [sourceReelId]'s own creator
+  /// (docs/PRD.md §7.2) — mirrors [createReel]; the server rejects this if
+  /// the source reel isn't published yet or its creator has turned
+  /// Jugalbandi off.
+  Future<Reel> createJugalbandi({
+    required String sourceReelId,
     required String videoId,
     required String category,
     String? caption,
   }) async {
     final token = await _requireToken();
     final response = await http.post(
-      Uri.parse('$baseUrl/v1/reels'),
+      Uri.parse('$baseUrl/v1/reels/$sourceReelId/jugalbandi'),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
@@ -118,7 +155,8 @@ class ReelApiClient {
       if (category != null) 'category': category,
       if (cursor != null) 'cursor': cursor,
     };
-    final uri = Uri.parse('$baseUrl/v1/reels').replace(queryParameters: query.isEmpty ? null : query);
+    final uri = Uri.parse('$baseUrl/v1/reels')
+        .replace(queryParameters: query.isEmpty ? null : query);
     // Best-effort, not required: a missing/expired token still loads the
     // feed (tokenProvider returning null is the normal, expected case for
     // an anonymous viewer, not an error), just without viewer_* state.

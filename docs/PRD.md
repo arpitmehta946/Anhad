@@ -162,6 +162,7 @@ Under-18 devotional singers are real, numerous, and genuinely underserved: they 
 - **No location, school, or city** in any profile with a minor performer.
 - **No behavioural tracking or profiling** — required by DPDPA, and consistent with the no-ads position in [§10.5](#105-explicitly-out-of-scope-for-v1) anyway.
 - **A minor's audio is excluded from the reusable "use this sound" library by default** (parent opt-in only). A child's voice circulating in videos they don't control is a foreseeable harm the audio-reuse design would otherwise create.
+- **Jugalbandi (duet, [§7.2](#72-reflective-interactions)) is off by default on any reel with a minor performer, parent opt-in only per reel** — a different risk class from the data-protection items above: a duet puts an adult stranger's face and voice visually beside a child's in the resulting video, which is a real-world proximity risk, not a data-handling one. Ordinary adult creators get the opposite default — Jugalbandi allowed unless the creator turns it off for a given reel — since the risk this restricts doesn't exist between two consenting adults.
 
 There is a real market position in this: *"the safest place for your child to share their singing."* Instagram cannot credibly say that.
 

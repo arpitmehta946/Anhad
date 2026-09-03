@@ -28,6 +28,13 @@ class _UploadReelScreenState extends ConsumerState<UploadReelScreen> {
   final _captionController = TextEditingController();
   File? _video;
   String? _category;
+  // Jugalbandi (remix/duet, docs/PRD.md §4.5/§7.2) — an ordinary adult
+  // creator defaults to allowed, matching the server's own default
+  // (api/internal/reels.Service.CreateReel); this switch is how they turn
+  // it off for a given reel, not how a Family Account's parent would (that
+  // account's own default is already off server-side, before this screen
+  // ever renders — see migration 000011's own doc).
+  bool _jugalbandiEnabled = true;
   _UploadStage _stage = _UploadStage.idle;
   String? _error;
 
@@ -49,7 +56,9 @@ class _UploadReelScreenState extends ConsumerState<UploadReelScreen> {
   Future<void> _upload() async {
     final video = _video;
     final category = _category;
-    if (video == null || category == null || _stage != _UploadStage.idle) return;
+    if (video == null || category == null || _stage != _UploadStage.idle) {
+      return;
+    }
 
     setState(() {
       _stage = _UploadStage.uploading;
@@ -69,6 +78,7 @@ class _UploadReelScreenState extends ConsumerState<UploadReelScreen> {
         videoId: target.videoId,
         category: category,
         caption: caption.isEmpty ? null : caption,
+        jugalbandiEnabled: _jugalbandiEnabled,
       );
 
       if (!mounted) return;
@@ -121,8 +131,9 @@ class _UploadReelScreenState extends ConsumerState<UploadReelScreen> {
                     _CategoryChip(
                       label: cat.label,
                       selected: _category == cat.slug,
-                      onSelected:
-                          busy ? null : () => setState(() => _category = cat.slug),
+                      onSelected: busy
+                          ? null
+                          : () => setState(() => _category = cat.slug),
                     ),
                 ],
               ),
@@ -136,7 +147,18 @@ class _UploadReelScreenState extends ConsumerState<UploadReelScreen> {
                   hintText: 'Optional',
                 ),
               ),
-              const SizedBox(height: 28),
+              const SizedBox(height: 24),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                value: _jugalbandiEnabled,
+                onChanged:
+                    busy ? null : (v) => setState(() => _jugalbandiEnabled = v),
+                title: const Text('Allow Jugalbandi'),
+                subtitle: const Text(
+                  'Let other people record a duet alongside this reel.',
+                ),
+              ),
+              const SizedBox(height: 4),
               if (_error != null) ...[
                 Text(
                   _error!,

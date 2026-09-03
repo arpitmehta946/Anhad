@@ -19,6 +19,12 @@
          meant a release build had no path to make any network call at all,
          cleartext or not. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Jugalbandi (remix/duet, PRD.md §7.2) records live camera + mic
+         alongside an existing reel's playback. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false"/>
 
     <application
         android:label="anhad"
