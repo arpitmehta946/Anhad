@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -16,6 +17,15 @@ import (
 
 	"github.com/anhad/api/internal/store"
 )
+
+// AudioLibrary is the narrow interface this package depends on to make a
+// newly-approved reel's audio reusable (docs/PRD.md §7.3) — implemented by
+// internal/audio.Service. Defined here rather than importing internal/audio
+// directly, the same decoupling this package already has from
+// internal/reels via reels.ModerationEnqueuer.
+type AudioLibrary interface {
+	PublishTrackForReel(ctx context.Context, reelID string) error
+}
 
 // Reasons is the fixed report-reason list. docs/PRD.md §8.0.1 names
 // financial_solicitation and medical_miracle_claim explicitly as the
@@ -114,11 +124,13 @@ type AuditLogEntry struct {
 }
 
 type Service struct {
-	store *store.Store
+	store  *store.Store
+	audio  AudioLibrary
+	logger *slog.Logger
 }
 
-func NewService(st *store.Store) *Service {
-	return &Service{store: st}
+func NewService(st *store.Store, audio AudioLibrary, logger *slog.Logger) *Service {
+	return &Service{store: st, audio: audio, logger: logger}
 }
 
 // SubmitReport files a report against a reel. Always lands status=open;
@@ -279,6 +291,7 @@ func (s *Service) actOnReport(ctx context.Context, moderatorID, reportID, action
 	}
 
 	reportStatus := "dismissed"
+	justApproved := false
 	if removeReel {
 		reportStatus = "actioned"
 		if _, err := tx.Exec(ctx,
@@ -286,13 +299,25 @@ func (s *Service) actOnReport(ctx context.Context, moderatorID, reportID, action
 		); err != nil {
 			return fmt.Errorf("reject reel: %w", err)
 		}
-	} else {
+		// A reel already published to the library (it was 'approved' before
+		// this later report took it down) must stop being reusable too —
+		// hidden, not deleted, so reels that already used this track via
+		// "use this sound" (docs/PRD.md §7.3) keep their own attribution
+		// and reuse/play history intact.
 		if _, err := tx.Exec(ctx,
+			`UPDATE audio_library SET is_public = false WHERE source_reel_id = $1`, reelID,
+		); err != nil {
+			return fmt.Errorf("hide audio track: %w", err)
+		}
+	} else {
+		tag, err := tx.Exec(ctx,
 			`UPDATE reels SET moderation_status = 'approved' WHERE id = $1 AND moderation_status IN ('pending', 'held')`,
 			reelID,
-		); err != nil {
+		)
+		if err != nil {
 			return fmt.Errorf("approve reel: %w", err)
 		}
+		justApproved = tag.RowsAffected() > 0
 	}
 
 	if _, err := tx.Exec(ctx,
@@ -311,6 +336,18 @@ func (s *Service) actOnReport(ctx context.Context, moderatorID, reportID, action
 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit: %w", err)
+	}
+
+	// Best-effort and after commit, same reasoning as
+	// internal/reels.Service's own moderation-enqueue calls: the report
+	// decision is already durably recorded at this point, so a failure
+	// here shouldn't turn a successful moderator action into an error —
+	// it would just leave this one reel's audio unpublished a little
+	// longer than intended, self-healing on the next successful call.
+	if justApproved {
+		if err := s.audio.PublishTrackForReel(ctx, reelID); err != nil {
+			s.logger.Error("failed to publish audio track", "reel_id", reelID, "error", err)
+		}
 	}
 	return nil
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/hibiken/asynq"
 
+	"github.com/anhad/api/internal/audio"
 	"github.com/anhad/api/internal/auth"
 	"github.com/anhad/api/internal/config"
 	"github.com/anhad/api/internal/japa"
@@ -60,11 +61,12 @@ func New(cfg *config.Config, logger *slog.Logger, st *store.Store) (*http.Server
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("build moderation pipeline: %w", err)
 	}
-	workerServer, workerHandler := moderation.NewWorkerServer(redisOpt, st, pipeline, logger)
+	audioSvc := audio.NewService(st, audio.NewLocalAudioSource())
+	workerServer, workerHandler := moderation.NewWorkerServer(redisOpt, st, pipeline, audioSvc, logger)
 	enqueuer := moderation.NewAsynqEnqueuer(redisOpt)
 
 	reelsSvc := reels.NewService(st, videoStorage, enqueuer, logger)
-	moderationSvc := moderation.NewService(st)
+	moderationSvc := moderation.NewService(st, audioSvc, logger)
 	socialSvc := social.NewService(st)
 
 	mux := http.NewServeMux()
@@ -85,6 +87,14 @@ func New(cfg *config.Config, logger *slog.Logger, st *store.Store) (*http.Server
 	// optionalAuth, not requireAuth or no-auth-at-all — see listFeedHandler's
 	// doc for why the feed still resolves claims when a token is present.
 	mux.Handle("GET /v1/reels", optionalAuth(authSvc)(listFeedHandler(logger, reelsSvc, socialSvc)))
+
+	// The audio library (docs/PRD.md §7.3): browsing and playback are
+	// public like the feed itself; "use this sound" needs a creator
+	// account for the same reason uploading a fresh reel does.
+	mux.HandleFunc("GET /v1/audio-tracks", listAudioLibraryHandler(logger, audioSvc))
+	mux.HandleFunc("POST /v1/audio-tracks/{id}/plays", recordAudioPlayHandler(logger, audioSvc))
+	mux.Handle("POST /v1/audio-tracks/{id}/use",
+		requireAuth(authSvc)(requireRole("creator")(createReelFromAudioTrackHandler(logger, reelsSvc))))
 
 	// The P0 renamed interactions (docs/PRD.md §6/§7.2): Pranam, Smaran, and
 	// Sevak are toggles; Prasad just records a share; Satsang read is public

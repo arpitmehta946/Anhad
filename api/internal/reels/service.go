@@ -45,6 +45,14 @@ var (
 	ErrSourceReelNotFound    = errors.New("reel not found")
 	ErrSourceReelNotApproved = errors.New("this reel isn't published yet")
 	ErrJugalbandiDisabled    = errors.New("the creator has turned off Jugalbandi for this reel")
+	// ErrAudioTrackNotFound/ErrAudioTrackNotReusable are CreateFromAudioTrack's
+	// own sentinels (docs/PRD.md §7.3's "use this sound") — a track can only
+	// be reused while it's public: is_public is the same boolean gate that
+	// controls library browsing, so a minor performer's excluded track
+	// (docs/PRD.md §4.5) can't be reused just because someone already has
+	// its id from an earlier feed response.
+	ErrAudioTrackNotFound    = errors.New("audio track not found")
+	ErrAudioTrackNotReusable = errors.New("this audio isn't available for reuse")
 )
 
 // Reel is a row from the reels table (db/migrations/000004, 000007,
@@ -60,6 +68,15 @@ var (
 // a duet result (JugalbandiSourceID set) — ListFeed's own query joins the
 // source reel and its creator so a client can render the side-by-side
 // duet and attribute both creators without a second round trip.
+//
+// The audio-library fields (docs/PRD.md §7.3) are a similar pair, in the
+// opposite sense: AudioTrackID is this reel's OWN track (nil until
+// internal/moderation approves the reel and internal/audio.Service
+// publishes it, or if its creator opted the reel out entirely), while
+// UsedAudioTrackID/UsedAudioTrackCreatorDisplayName are only set when this
+// reel itself was built via "use this sound" from someone else's track —
+// the two are independent: a reel can have its own track AND be built from
+// someone else's.
 type Reel struct {
 	ID                                 string
 	CreatorID                          string
@@ -80,6 +97,10 @@ type Reel struct {
 	JugalbandiSourceCaption            *string
 	JugalbandiSourceCreatorID          *string
 	JugalbandiSourceCreatorDisplayName *string
+	AudioTrackID                       *string
+	AudioTrackReuseCount               int64
+	UsedAudioTrackID                   *string
+	UsedAudioTrackCreatorDisplayName   *string
 	CreatedAt                          time.Time
 }
 
@@ -121,18 +142,19 @@ func (s *Service) CreateUploadTarget(ctx context.Context) (*UploadTarget, error)
 // always PENDING (the column default), never chosen by the caller, since
 // nothing this slice does is allowed to grant itself approval.
 //
-// jugalbandiEnabled is the creator's own explicit choice for this one reel
-// (docs/PRD.md §4.5/§7.2) — nil means "use the default for this creator,"
-// which insertReel resolves to false for a minor-performer (Family)
-// account and true otherwise. A non-nil value always wins regardless of
-// account type: an ordinary adult creator can turn Jugalbandi off same as
-// anyone; a Family Account's parent — the only person who can ever be
-// authenticated as that account, see db/migrations/000011's own doc — can
-// turn it on the same way, which is what "only the parent can enable it"
-// actually means here: there is no separate permission gate to build
-// beyond "the account holder controls their own reel's settings," since a
-// minor performer never holds their own login in this design.
-func (s *Service) CreateReel(ctx context.Context, creatorID, videoID, category string, caption *string, jugalbandiEnabled *bool) (*Reel, error) {
+// jugalbandiEnabled and audioLibraryEnabled are the creator's own explicit
+// per-reel choices (docs/PRD.md §4.5/§7.2, §7.3) — nil means "use the
+// default for this creator," which insertReel resolves to false for a
+// minor-performer (Family) account and true otherwise, independently for
+// each flag. A non-nil value always wins regardless of account type: an
+// ordinary adult creator can turn either off same as anyone; a Family
+// Account's parent — the only person who can ever be authenticated as
+// that account, see db/migrations/000011's own doc — can turn either on
+// the same way, which is what "only the parent can enable it" actually
+// means here: there is no separate permission gate to build beyond "the
+// account holder controls their own reel's settings," since a minor
+// performer never holds their own login in this design.
+func (s *Service) CreateReel(ctx context.Context, creatorID, videoID, category string, caption *string, jugalbandiEnabled, audioLibraryEnabled *bool) (*Reel, error) {
 	if !isValidCategory(category) {
 		return nil, ErrInvalidCategory
 	}
@@ -145,7 +167,7 @@ func (s *Service) CreateReel(ctx context.Context, creatorID, videoID, category s
 		return nil, ErrUploadNotReady
 	}
 
-	return s.insertReel(ctx, creatorID, videoURL, category, caption, jugalbandiEnabled, nil)
+	return s.insertReel(ctx, creatorID, videoURL, category, caption, jugalbandiEnabled, audioLibraryEnabled, nil, nil)
 }
 
 // CreateJugalbandi finalizes an upload into a duet result: the same
@@ -192,7 +214,7 @@ func (s *Service) CreateJugalbandi(ctx context.Context, creatorID, sourceReelID,
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op if already committed
 
-	reel, err := s.insertReelTx(ctx, tx, creatorID, videoURL, category, caption, nil, &sourceReelID)
+	reel, err := s.insertReelTx(ctx, tx, creatorID, videoURL, category, caption, nil, nil, &sourceReelID, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -216,11 +238,79 @@ func (s *Service) CreateJugalbandi(ctx context.Context, creatorID, sourceReelID,
 	return reel, nil
 }
 
+// CreateFromAudioTrack finalizes an upload into a new reel built from
+// trackID's audio (docs/PRD.md §7.3's "use this sound") — the same
+// validation as CreateReel, plus checking the track exists and is still
+// public (ErrAudioTrackNotReusable covers both "opted out" and "the
+// source reel was later taken down," since RemoveReel flips is_public to
+// false rather than deleting the row — see internal/moderation.actOnReport's
+// own doc), and — in the same transaction as the insert — bumping the
+// track's own reuse_count, mirroring CreateJugalbandi's shape for a
+// different kind of reuse (see migration 000013's own doc for why the two
+// counters are separate, not double-tracking the same event).
+func (s *Service) CreateFromAudioTrack(ctx context.Context, creatorID, trackID, videoID, category string, caption *string) (*Reel, error) {
+	if !isValidCategory(category) {
+		return nil, ErrInvalidCategory
+	}
+
+	videoURL, ready, err := s.storage.PlaybackURL(ctx, videoID)
+	if err != nil {
+		return nil, fmt.Errorf("check upload status: %w", err)
+	}
+	if !ready {
+		return nil, ErrUploadNotReady
+	}
+
+	var trackIsPublic bool
+	err = s.store.PG.QueryRow(ctx,
+		`SELECT is_public FROM audio_library WHERE id = $1`, trackID,
+	).Scan(&trackIsPublic)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrAudioTrackNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load audio track: %w", err)
+	}
+	if !trackIsPublic {
+		return nil, ErrAudioTrackNotReusable
+	}
+
+	tx, err := s.store.PG.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op if already committed
+
+	reel, err := s.insertReelTx(ctx, tx, creatorID, videoURL, category, caption, nil, nil, nil, &trackID)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE audio_library SET reuse_count = reuse_count + 1 WHERE id = $1`, trackID,
+	); err != nil {
+		return nil, fmt.Errorf("increment audio track reuse count: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit: %w", err)
+	}
+
+	// Best-effort, same as CreateReel/CreateJugalbandi — see CreateReel's
+	// own doc for why a queue hiccup here doesn't fail an otherwise-
+	// successful upload request.
+	if err := s.enqueuer.EnqueueClassifyReel(ctx, reel.ID, reel.VideoURL); err != nil {
+		s.logger.Error("failed to enqueue moderation pipeline", "reel_id", reel.ID, "error", err)
+	}
+
+	return reel, nil
+}
+
 func (s *Service) insertReel(
 	ctx context.Context, creatorID, videoURL, category string, caption *string,
-	jugalbandiEnabled *bool, jugalbandiSourceID *string,
+	jugalbandiEnabled, audioLibraryEnabled *bool, jugalbandiSourceID, usedAudioTrackID *string,
 ) (*Reel, error) {
-	reel, err := s.insertReelTx(ctx, s.store.PG, creatorID, videoURL, category, caption, jugalbandiEnabled, jugalbandiSourceID)
+	reel, err := s.insertReelTx(ctx, s.store.PG, creatorID, videoURL, category, caption, jugalbandiEnabled, audioLibraryEnabled, jugalbandiSourceID, usedAudioTrackID)
 	if err != nil {
 		return nil, err
 	}
@@ -247,42 +337,58 @@ type dbTX interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
-// insertReelTx is CreateReel/CreateJugalbandi's shared insert: the CTE,
-// rather than a plain INSERT...RETURNING, is what lets this still come
-// back with the creator's real display_name/comments_mode in one round
-// trip — a plain RETURNING can't reach into users. jugalbandiEnabled nil
-// resolves to NOT is_minor_performer_account for the creator's own row
-// (see CreateReel's doc); the four engagement counts and the Jugalbandi
-// source-attribution fields aren't selected from anywhere: a reel this
-// request just inserted genuinely has none of the former yet, and only
-// ever has the latter when jugalbandiSourceID is set, which the caller
-// already knows.
+// insertReelTx is CreateReel/CreateJugalbandi/CreateFromAudioTrack's shared
+// insert: the CTE, rather than a plain INSERT...RETURNING, is what lets
+// this still come back with the creator's real display_name/comments_mode
+// in one round trip — a plain RETURNING can't reach into users.
+// jugalbandiEnabled/audioLibraryEnabled nil each independently resolve to
+// NOT is_minor_performer_account for the creator's own row (see CreateReel's
+// doc); the four engagement counts, the Jugalbandi source-attribution
+// fields, this reel's own (not-yet-created) audio_library row, and the
+// used-track creator's display name aren't selected from anywhere: a reel
+// this request just inserted genuinely has none of the first three yet,
+// and the caller already knows usedAudioTrackID's own id if it set one.
+//
+// usedAudioTrackID is stored in reels.audio_id — a column migration 000004
+// already added, referencing audio_library, back when this schema was
+// first sketched (docs/TECH_STACK.md §6), but nothing wrote to it until
+// migration 000013 gave it a real meaning ("use this sound," docs/PRD.md
+// §7.3). Kept as its original name at the SQL layer rather than renamed to
+// match; the Go/JSON layer uses the more legible UsedAudioTrackID/
+// used_audio_track_id instead, the same kind of divergence this reel's own
+// like_count/pranam_count columns-vs-field already has.
 func (s *Service) insertReelTx(
 	ctx context.Context, tx dbTX, creatorID, videoURL, category string, caption *string,
-	jugalbandiEnabled *bool, jugalbandiSourceID *string,
+	jugalbandiEnabled, audioLibraryEnabled *bool, jugalbandiSourceID, usedAudioTrackID *string,
 ) (*Reel, error) {
 	const query = `
 		WITH inserted AS (
-			INSERT INTO reels (creator_id, video_url, category, caption, jugalbandi_enabled, jugalbandi_source_id)
+			INSERT INTO reels (
+				creator_id, video_url, category, caption,
+				jugalbandi_enabled, audio_library_enabled, jugalbandi_source_id, audio_id
+			)
 			VALUES (
 				$1, $2, $3, $4,
 				COALESCE($5, NOT (SELECT is_minor_performer_account FROM users WHERE id = $1)),
-				$6
+				COALESCE($6, NOT (SELECT is_minor_performer_account FROM users WHERE id = $1)),
+				$7, $8
 			)
 			RETURNING id, creator_id, video_url, caption, category, moderation_status, created_at,
-			          jugalbandi_enabled, jugalbandi_source_id
+			          jugalbandi_enabled, jugalbandi_source_id, audio_id
 		)
 		SELECT inserted.id, inserted.creator_id, u.display_name, inserted.video_url, inserted.caption,
 		       inserted.category, inserted.moderation_status, u.comments_mode, inserted.created_at,
-		       inserted.jugalbandi_enabled, inserted.jugalbandi_source_id
+		       inserted.jugalbandi_enabled, inserted.jugalbandi_source_id, inserted.audio_id
 		FROM inserted
 		JOIN users u ON u.id = inserted.creator_id
 	`
 	var reel Reel
-	err := tx.QueryRow(ctx, query, creatorID, videoURL, category, caption, jugalbandiEnabled, jugalbandiSourceID).Scan(
+	err := tx.QueryRow(ctx, query, creatorID, videoURL, category, caption,
+		jugalbandiEnabled, audioLibraryEnabled, jugalbandiSourceID, usedAudioTrackID,
+	).Scan(
 		&reel.ID, &reel.CreatorID, &reel.CreatorDisplayName, &reel.VideoURL, &reel.Caption, &reel.Category,
 		&reel.ModerationStatus, &reel.CreatorCommentsMode, &reel.CreatedAt,
-		&reel.JugalbandiEnabled, &reel.JugalbandiSourceID,
+		&reel.JugalbandiEnabled, &reel.JugalbandiSourceID, &reel.UsedAudioTrackID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("insert reel: %w", err)
@@ -305,23 +411,32 @@ func (s *Service) ListFeed(ctx context.Context, category *string, before *time.T
 		limit = 20
 	}
 
-	// The two LEFT JOINs (never INNER — most reels aren't a Jugalbandi
-	// result, and jugalbandi_source_id being NULL must still return the
-	// row) pull in the source reel's own video/caption and its creator's
-	// identity, so a client can render the side-by-side duet and
-	// attribute both creators without a second request per Jugalbandi
-	// reel (docs/PRD.md §7.2).
+	// The LEFT JOINs (never INNER — most reels aren't a Jugalbandi result,
+	// and a NULL jugalbandi_source_id/id-of-own-track/audio_id must still
+	// return the row) pull in: the Jugalbandi source reel's own
+	// video/caption and its creator's identity (docs/PRD.md §7.2); this
+	// reel's own audio_library row, if one's been published yet and is
+	// still public (docs/PRD.md §7.3, §4.5) — own_audio's join condition
+	// itself enforces the "not reusable if excluded" rule, not just a
+	// WHERE clause after the fact; and, separately, the track this reel
+	// was itself built from via "use this sound" (r.audio_id — see
+	// insertReelTx's own doc for why this predates the feature), if any.
 	const query = `
 		SELECT r.id, r.creator_id, u.display_name, r.video_url, r.caption, r.category,
 		       r.moderation_status, u.comments_mode,
 		       r.like_count, r.comment_count, r.share_count, r.save_count,
 		       r.jugalbandi_enabled, r.jugalbandi_reuse_count, r.jugalbandi_source_id,
 		       src.video_url, src.caption, src.creator_id, src_creator.display_name,
+		       own_audio.id, COALESCE(own_audio.reuse_count, 0),
+		       r.audio_id, used_audio_creator.display_name,
 		       r.created_at
 		FROM reels r
 		JOIN users u ON u.id = r.creator_id
 		LEFT JOIN reels src ON src.id = r.jugalbandi_source_id
 		LEFT JOIN users src_creator ON src_creator.id = src.creator_id
+		LEFT JOIN audio_library own_audio ON own_audio.source_reel_id = r.id AND own_audio.is_public
+		LEFT JOIN audio_library used_audio ON used_audio.id = r.audio_id
+		LEFT JOIN users used_audio_creator ON used_audio_creator.id = used_audio.artist_id
 		WHERE r.moderation_status = 'approved'
 		  AND ($1::text IS NULL OR r.category = $1)
 		  AND ($2::timestamptz IS NULL OR r.created_at < $2)
@@ -344,6 +459,8 @@ func (s *Service) ListFeed(ctx context.Context, category *string, before *time.T
 			&reel.JugalbandiEnabled, &reel.JugalbandiReuseCount, &reel.JugalbandiSourceID,
 			&reel.JugalbandiSourceVideoURL, &reel.JugalbandiSourceCaption,
 			&reel.JugalbandiSourceCreatorID, &reel.JugalbandiSourceCreatorDisplayName,
+			&reel.AudioTrackID, &reel.AudioTrackReuseCount,
+			&reel.UsedAudioTrackID, &reel.UsedAudioTrackCreatorDisplayName,
 			&reel.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan reel: %w", err)

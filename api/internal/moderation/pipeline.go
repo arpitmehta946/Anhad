@@ -107,8 +107,11 @@ func (p *Pipeline) Run(ctx context.Context, videoPath string) (*PipelineResult, 
 // reel's own video, then persist the result — either straight to
 // 'approved', or to 'held' plus a system-generated report (reporter_id
 // NULL) so the reel shows up in the moderator queue that reporting
-// already built, with no new UI needed to review it.
-func RunAndSave(ctx context.Context, st *store.Store, pipeline *Pipeline, reelID, videoURL string) error {
+// already built, with no new UI needed to review it. An approved reel's
+// audio is then published to the library (docs/PRD.md §7.3) via audioLib —
+// never for a held one, matching the "nothing unmoderated is reusable"
+// rule this whole package already enforces for the video feed itself.
+func RunAndSave(ctx context.Context, st *store.Store, pipeline *Pipeline, audioLib AudioLibrary, reelID, videoURL string) error {
 	result, err := pipeline.Run(ctx, videoURL)
 	if err != nil {
 		pipeline.Logger.Error("moderation pipeline failed", "reel_id", reelID, "error", err)
@@ -150,6 +153,14 @@ func RunAndSave(ctx context.Context, st *store.Store, pipeline *Pipeline, reelID
 	}
 
 	if result.Status != "held" {
+		// Best-effort, same reasoning as the enqueue calls in
+		// internal/reels.Service: the reel is already durably approved at
+		// this point, so a failure here shouldn't turn a successful
+		// moderation run into an error — it just leaves this one reel's
+		// audio unpublished, self-healing on the next successful run.
+		if err := audioLib.PublishTrackForReel(ctx, reelID); err != nil {
+			pipeline.Logger.Error("failed to publish audio track", "reel_id", reelID, "error", err)
+		}
 		return nil
 	}
 

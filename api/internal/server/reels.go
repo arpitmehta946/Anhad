@@ -50,10 +50,11 @@ func createReelHandler(logger *slog.Logger, reelsSvc *reels.Service) http.Handle
 		}
 
 		var req struct {
-			VideoID           string  `json:"video_id"`
-			Category          string  `json:"category"`
-			Caption           *string `json:"caption"`
-			JugalbandiEnabled *bool   `json:"jugalbandi_enabled"`
+			VideoID             string  `json:"video_id"`
+			Category            string  `json:"category"`
+			Caption             *string `json:"caption"`
+			JugalbandiEnabled   *bool   `json:"jugalbandi_enabled"`
+			AudioLibraryEnabled *bool   `json:"audio_library_enabled"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid request body")
@@ -64,7 +65,7 @@ func createReelHandler(logger *slog.Logger, reelsSvc *reels.Service) http.Handle
 			return
 		}
 
-		reel, err := reelsSvc.CreateReel(r.Context(), claims.Subject, req.VideoID, req.Category, req.Caption, req.JugalbandiEnabled)
+		reel, err := reelsSvc.CreateReel(r.Context(), claims.Subject, req.VideoID, req.Category, req.Caption, req.JugalbandiEnabled, req.AudioLibraryEnabled)
 		switch {
 		case err == nil:
 			// A brand new reel has no engagement yet and its own creator
@@ -131,6 +132,55 @@ func createJugalbandiHandler(logger *slog.Logger, reelsSvc *reels.Service) http.
 		default:
 			logger.Error("create jugalbandi failed", "error", err)
 			writeError(w, http.StatusInternalServerError, "failed to create jugalbandi")
+		}
+	}
+}
+
+// createReelFromAudioTrackHandler finalizes an already-uploaded video into
+// a new reel built from the audio track named in the path (docs/PRD.md
+// §7.3's "use this sound") — same shape as createJugalbandiHandler.
+func createReelFromAudioTrackHandler(logger *slog.Logger, reelsSvc *reels.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		claims, ok := auth.ClaimsFromContext(r.Context())
+		if !ok {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		trackID := r.PathValue("id")
+		if trackID == "" {
+			writeError(w, http.StatusBadRequest, "track id required")
+			return
+		}
+
+		var req struct {
+			VideoID  string  `json:"video_id"`
+			Category string  `json:"category"`
+			Caption  *string `json:"caption"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if req.VideoID == "" || req.Category == "" {
+			writeError(w, http.StatusBadRequest, "video_id and category are required")
+			return
+		}
+
+		reel, err := reelsSvc.CreateFromAudioTrack(r.Context(), claims.Subject, trackID, req.VideoID, req.Category, req.Caption)
+		switch {
+		case err == nil:
+			writeJSON(w, http.StatusCreated, reelJSON(reel, false, false, false))
+		case errors.Is(err, reels.ErrInvalidCategory):
+			writeError(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, reels.ErrUploadNotReady):
+			writeError(w, http.StatusConflict, err.Error())
+		case errors.Is(err, reels.ErrAudioTrackNotFound):
+			writeError(w, http.StatusNotFound, err.Error())
+		case errors.Is(err, reels.ErrAudioTrackNotReusable):
+			writeError(w, http.StatusForbidden, err.Error())
+		default:
+			logger.Error("create reel from audio track failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to create reel")
 		}
 	}
 }
@@ -222,6 +272,7 @@ func reelJSON(reel *reels.Reel, viewerPranamed, viewerSmaraned, viewerFollowingC
 		"viewer_following_creator": viewerFollowingCreator,
 		"jugalbandi_enabled":       reel.JugalbandiEnabled,
 		"jugalbandi_reuse_count":   reel.JugalbandiReuseCount,
+		"audio_track_reuse_count":  reel.AudioTrackReuseCount,
 		"created_at":               reel.CreatedAt,
 	}
 	if reel.Caption != nil {
@@ -247,6 +298,23 @@ func reelJSON(reel *reels.Reel, viewerPranamed, viewerSmaraned, viewerFollowingC
 		}
 		if reel.JugalbandiSourceCreatorDisplayName != nil {
 			m["jugalbandi_source_creator_display_name"] = *reel.JugalbandiSourceCreatorDisplayName
+		}
+	}
+	// This reel's own audio_library track (docs/PRD.md §7.3) — nil until
+	// internal/moderation approves the reel and publishes it, or if its
+	// creator opted the reel out of the library entirely (ListFeed's own
+	// join condition excludes a non-public track the same way).
+	if reel.AudioTrackID != nil {
+		m["audio_track_id"] = *reel.AudioTrackID
+	}
+	// The used_audio_track_* fields are only ever present together — this
+	// reel either was built via "use this sound" (track found, attribution
+	// complete) or it wasn't (used_audio_track_id was NULL) — same
+	// all-or-nothing shape as the jugalbandi_source_* fields above.
+	if reel.UsedAudioTrackID != nil {
+		m["used_audio_track_id"] = *reel.UsedAudioTrackID
+		if reel.UsedAudioTrackCreatorDisplayName != nil {
+			m["used_audio_track_creator_display_name"] = *reel.UsedAudioTrackCreatorDisplayName
 		}
 	}
 	return m

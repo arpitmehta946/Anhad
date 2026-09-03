@@ -17,8 +17,24 @@ enum _UploadStage { idle, uploading, finalizing }
 /// enforcement is server-side (api/internal/server/reels.go's
 /// requireRole), this screen existing at all isn't what makes upload
 /// creator-only.
+///
+/// [presetAudioTrackId] is set when this screen was reached via "use this
+/// sound" (docs/PRD.md §7.3, audio_library_screen.dart/interaction_rail.dart)
+/// — the new reel is then finalized through
+/// ReelApiClient.createReelFromAudioTrack instead of createReel, and the
+/// Jugalbandi/library-opt-out switches don't apply to it (a reel already
+/// built from someone else's track isn't itself offering its video up for
+/// either kind of reuse in this first slice). [presetCategory] just saves
+/// a tap by pre-selecting the source track's own category; still changeable.
 class UploadReelScreen extends ConsumerStatefulWidget {
-  const UploadReelScreen({super.key});
+  const UploadReelScreen({
+    super.key,
+    this.presetAudioTrackId,
+    this.presetCategory,
+  });
+
+  final String? presetAudioTrackId;
+  final String? presetCategory;
 
   @override
   ConsumerState<UploadReelScreen> createState() => _UploadReelScreenState();
@@ -35,8 +51,19 @@ class _UploadReelScreenState extends ConsumerState<UploadReelScreen> {
   // account's own default is already off server-side, before this screen
   // ever renders — see migration 000011's own doc).
   bool _jugalbandiEnabled = true;
+  // Sound library inclusion (docs/PRD.md §4.5/§7.3) — same shape and same
+  // server-side default resolution as _jugalbandiEnabled above.
+  bool _audioLibraryEnabled = true;
   _UploadStage _stage = _UploadStage.idle;
   String? _error;
+
+  bool get _isUseThisSound => widget.presetAudioTrackId != null;
+
+  @override
+  void initState() {
+    super.initState();
+    _category = widget.presetCategory;
+  }
 
   @override
   void dispose() {
@@ -74,12 +101,23 @@ class _UploadReelScreenState extends ConsumerState<UploadReelScreen> {
       setState(() => _stage = _UploadStage.finalizing);
 
       final caption = _captionController.text.trim();
-      await client.createReel(
-        videoId: target.videoId,
-        category: category,
-        caption: caption.isEmpty ? null : caption,
-        jugalbandiEnabled: _jugalbandiEnabled,
-      );
+      final trackId = widget.presetAudioTrackId;
+      if (trackId != null) {
+        await client.createReelFromAudioTrack(
+          trackId: trackId,
+          videoId: target.videoId,
+          category: category,
+          caption: caption.isEmpty ? null : caption,
+        );
+      } else {
+        await client.createReel(
+          videoId: target.videoId,
+          category: category,
+          caption: caption.isEmpty ? null : caption,
+          jugalbandiEnabled: _jugalbandiEnabled,
+          audioLibraryEnabled: _audioLibraryEnabled,
+        );
+      }
 
       if (!mounted) return;
       Navigator.of(context).pop(true);
@@ -101,7 +139,9 @@ class _UploadReelScreenState extends ConsumerState<UploadReelScreen> {
     final busy = _stage != _UploadStage.idle;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Upload')),
+      appBar: AppBar(
+        title: Text(_isUseThisSound ? 'Use this sound' : 'Upload'),
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -147,17 +187,34 @@ class _UploadReelScreenState extends ConsumerState<UploadReelScreen> {
                   hintText: 'Optional',
                 ),
               ),
-              const SizedBox(height: 24),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                value: _jugalbandiEnabled,
-                onChanged:
-                    busy ? null : (v) => setState(() => _jugalbandiEnabled = v),
-                title: const Text('Allow Jugalbandi'),
-                subtitle: const Text(
-                  'Let other people record a duet alongside this reel.',
+              // A reel built via "use this sound" isn't itself offering its
+              // own video up for either kind of reuse in this first slice —
+              // see this widget's own doc for why these two don't apply.
+              if (!_isUseThisSound) ...[
+                const SizedBox(height: 24),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: _jugalbandiEnabled,
+                  onChanged: busy
+                      ? null
+                      : (v) => setState(() => _jugalbandiEnabled = v),
+                  title: const Text('Allow Jugalbandi'),
+                  subtitle: const Text(
+                    'Let other people record a duet alongside this reel.',
+                  ),
                 ),
-              ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: _audioLibraryEnabled,
+                  onChanged: busy
+                      ? null
+                      : (v) => setState(() => _audioLibraryEnabled = v),
+                  title: const Text('Add to sound library'),
+                  subtitle: const Text(
+                    'Let other people start a new reel with this audio.',
+                  ),
+                ),
+              ],
               const SizedBox(height: 4),
               if (_error != null) ...[
                 Text(

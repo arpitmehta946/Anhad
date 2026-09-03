@@ -61,7 +61,7 @@ func (e *AsynqEnqueuer) EnqueueClassifyReel(ctx context.Context, reelID, videoUR
 // rather than attaching it to the server itself, so both come back
 // together — cmd/api/main.go calls server.Start(handler) alongside the
 // HTTP server and server.Shutdown() on the same signal that stops it.
-func NewWorkerServer(redisOpt asynq.RedisConnOpt, st *store.Store, pipeline *Pipeline, logger *slog.Logger) (*asynq.Server, asynq.Handler) {
+func NewWorkerServer(redisOpt asynq.RedisConnOpt, st *store.Store, pipeline *Pipeline, audioLib AudioLibrary, logger *slog.Logger) (*asynq.Server, asynq.Handler) {
 	server := asynq.NewServer(redisOpt, asynq.Config{
 		Concurrency: 2, // CPU-bound (whisper.cpp) — more than a couple in parallel just contends for the same cores
 		Logger:      slogAdapter{logger},
@@ -73,7 +73,7 @@ func NewWorkerServer(redisOpt asynq.RedisConnOpt, st *store.Store, pipeline *Pip
 		if err := json.Unmarshal(t.Payload(), &payload); err != nil {
 			return fmt.Errorf("unmarshal classify-reel payload: %w", err)
 		}
-		return RunAndSave(ctx, st, pipeline, payload.ReelID, payload.VideoURL)
+		return RunAndSave(ctx, st, pipeline, audioLib, payload.ReelID, payload.VideoURL)
 	})
 
 	return server, mux

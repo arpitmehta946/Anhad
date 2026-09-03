@@ -90,15 +90,16 @@ class ReelApiClient {
     }
   }
 
-  /// jugalbandiEnabled is the creator's own per-reel Jugalbandi choice
-  /// (docs/PRD.md §4.5/§7.2) — null means "use the default for my
-  /// account" (api/internal/reels.Service.CreateReel's own doc explains
-  /// how the server resolves that).
+  /// jugalbandiEnabled/audioLibraryEnabled are the creator's own per-reel
+  /// choices (docs/PRD.md §4.5/§7.2, §7.3) — null means "use the default
+  /// for my account" (api/internal/reels.Service.CreateReel's own doc
+  /// explains how the server resolves that, independently for each flag).
   Future<Reel> createReel({
     required String videoId,
     required String category,
     String? caption,
     bool? jugalbandiEnabled,
+    bool? audioLibraryEnabled,
   }) async {
     final token = await _requireToken();
     final response = await http.post(
@@ -112,6 +113,8 @@ class ReelApiClient {
         'category': category,
         if (caption != null && caption.isNotEmpty) 'caption': caption,
         if (jugalbandiEnabled != null) 'jugalbandi_enabled': jugalbandiEnabled,
+        if (audioLibraryEnabled != null)
+          'audio_library_enabled': audioLibraryEnabled,
       }),
     );
     if (response.statusCode != 201) {
@@ -134,6 +137,35 @@ class ReelApiClient {
     final token = await _requireToken();
     final response = await http.post(
       Uri.parse('$baseUrl/v1/reels/$sourceReelId/jugalbandi'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+      body: jsonEncode({
+        'video_id': videoId,
+        'category': category,
+        if (caption != null && caption.isNotEmpty) 'caption': caption,
+      }),
+    );
+    if (response.statusCode != 201) {
+      throw HttpException(_errorMessage(response));
+    }
+    return Reel.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  /// Finalizes an already-uploaded video into a new reel built from
+  /// [trackId]'s audio (docs/PRD.md §7.3's "use this sound") — mirrors
+  /// [createJugalbandi]; the server rejects this if the track doesn't
+  /// exist or isn't public (docs/PRD.md §4.5's minor-performer exclusion).
+  Future<Reel> createReelFromAudioTrack({
+    required String trackId,
+    required String videoId,
+    required String category,
+    String? caption,
+  }) async {
+    final token = await _requireToken();
+    final response = await http.post(
+      Uri.parse('$baseUrl/v1/audio-tracks/$trackId/use'),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',

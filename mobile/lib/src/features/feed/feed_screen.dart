@@ -8,6 +8,7 @@ import 'package:video_player/video_player.dart';
 import '../../app.dart' show routeObserver;
 import '../../theme/anhad_icons.dart';
 import '../../theme/colors.dart';
+import '../audio_library/audio_library_screen.dart';
 import '../auth/auth_controller.dart';
 import '../japa/japa_screen.dart';
 import '../moderation/moderation_queue_screen.dart';
@@ -193,6 +194,16 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with RouteAware {
             tooltip: 'Japa',
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const JapaScreen()),
+            ),
+          ),
+          // Browsing the sound library needs no account, same as the feed
+          // itself (docs/PRD.md: viewers browse for free) — only "use this
+          // sound" from inside it needs one, gated the same way upload is.
+          IconButton(
+            icon: const Icon(Icons.library_music_outlined),
+            tooltip: 'Sound Library',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const AudioLibraryScreen()),
             ),
           ),
           // Always one or the other — never both absent — so there's
@@ -528,6 +539,21 @@ class _ReelPageState extends State<_ReelPage> {
                   Text(
                     'Jugalbandi with '
                     '${widget.reel.jugalbandiSourceCreatorDisplayName ?? 'a fellow devotee'}',
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 12,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
+                // Attribution for a reel built via "use this sound"
+                // (docs/PRD.md §7.3) — the original track's own creator,
+                // distinct from this reel's own performer credited above.
+                if (widget.reel.usedAudioTrackId != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    'Audio by '
+                    '${widget.reel.usedAudioTrackCreatorDisplayName ?? 'a fellow devotee'}',
                     style: const TextStyle(
                       color: Colors.white70,
                       fontSize: 12,

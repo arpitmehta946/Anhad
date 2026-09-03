@@ -11,6 +11,7 @@ import 'data/reel_category.dart';
 import 'jugalbandi/jugalbandi_record_screen.dart';
 import 'satsang_sheet.dart';
 import 'social_provider.dart';
+import 'upload/upload_reel_screen.dart';
 
 /// The right-side action rail holding the four reel-scoped P0 renamed
 /// interactions (docs/PRD.md §6/§7.2) — Pranam, Satsang, Prasad, Smaran —
@@ -85,6 +86,21 @@ class InteractionRail extends ConsumerWidget {
             label: 'Jugalbandi',
             semanticLabel: 'Record a duet alongside this reel',
             onTap: () => _openJugalbandi(context),
+          ),
+        ],
+        // Hidden rather than shown-disabled when this reel has no public
+        // track of its own yet (docs/PRD.md §7.3) — same reasoning as the
+        // Jugalbandi button above: not yet approved, or its creator opted
+        // it out of the library entirely, and either way there's nothing
+        // to reuse yet.
+        if (reel.audioTrackId != null) ...[
+          const SizedBox(height: 14),
+          _RailButton(
+            icon: const Icon(Icons.music_note, color: Colors.white, size: 24),
+            label: 'Sound',
+            count: reel.audioTrackReuseCount,
+            semanticLabel: 'Use this sound in a new reel',
+            onTap: () => _useThisSound(context),
           ),
         ],
         const SizedBox(height: 14),
@@ -174,6 +190,19 @@ class InteractionRail extends ConsumerWidget {
     Navigator.of(context).push(
       MaterialPageRoute(
           builder: (_) => JugalbandiRecordScreen(sourceReel: reel)),
+    );
+  }
+
+  void _useThisSound(BuildContext context) {
+    final trackId = reel.audioTrackId;
+    if (trackId == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => UploadReelScreen(
+          presetAudioTrackId: trackId,
+          presetCategory: reel.category,
+        ),
+      ),
     );
   }
 

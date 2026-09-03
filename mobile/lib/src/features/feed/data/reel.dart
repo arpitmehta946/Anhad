@@ -18,6 +18,14 @@
 /// this reel itself IS a duet result, carrying just enough about the
 /// original (its video, caption, creator) to render the side-by-side
 /// playback and attribution without a second request.
+///
+/// The audio-library fields back "use this sound" (docs/PRD.md §7.3).
+/// `audioTrackId` is this reel's OWN track — null until the reel clears
+/// moderation and its track is published, or if its creator (or a minor
+/// performer's own default, docs/PRD.md §4.5) opted it out of the library
+/// entirely. `usedAudioTrackId`/`usedAudioTrackCreatorDisplayName` are the
+/// opposite direction: only set when this reel itself was built from
+/// someone else's track.
 class Reel {
   const Reel({
     required this.id,
@@ -42,6 +50,10 @@ class Reel {
     this.jugalbandiSourceCaption,
     this.jugalbandiSourceCreatorId,
     this.jugalbandiSourceCreatorDisplayName,
+    this.audioTrackId,
+    this.audioTrackReuseCount = 0,
+    this.usedAudioTrackId,
+    this.usedAudioTrackCreatorDisplayName,
   });
 
   factory Reel.fromJson(Map<String, dynamic> json) => Reel(
@@ -71,6 +83,12 @@ class Reel {
             json['jugalbandi_source_creator_id'] as String?,
         jugalbandiSourceCreatorDisplayName:
             json['jugalbandi_source_creator_display_name'] as String?,
+        audioTrackId: json['audio_track_id'] as String?,
+        audioTrackReuseCount:
+            (json['audio_track_reuse_count'] as num?)?.toInt() ?? 0,
+        usedAudioTrackId: json['used_audio_track_id'] as String?,
+        usedAudioTrackCreatorDisplayName:
+            json['used_audio_track_creator_display_name'] as String?,
         createdAt: DateTime.parse(json['created_at'] as String),
       );
 
@@ -95,6 +113,10 @@ class Reel {
   final String? jugalbandiSourceCaption;
   final String? jugalbandiSourceCreatorId;
   final String? jugalbandiSourceCreatorDisplayName;
+  final String? audioTrackId;
+  final int audioTrackReuseCount;
+  final String? usedAudioTrackId;
+  final String? usedAudioTrackCreatorDisplayName;
   final DateTime createdAt;
 
   bool get reflectionOnly => commentsMode == 'reflection_only';
@@ -141,6 +163,10 @@ class Reel {
       jugalbandiSourceCaption: jugalbandiSourceCaption,
       jugalbandiSourceCreatorId: jugalbandiSourceCreatorId,
       jugalbandiSourceCreatorDisplayName: jugalbandiSourceCreatorDisplayName,
+      audioTrackId: audioTrackId,
+      audioTrackReuseCount: audioTrackReuseCount,
+      usedAudioTrackId: usedAudioTrackId,
+      usedAudioTrackCreatorDisplayName: usedAudioTrackCreatorDisplayName,
     );
   }
 }
