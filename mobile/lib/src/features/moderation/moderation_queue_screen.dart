@@ -1,10 +1,11 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../theme/colors.dart';
+import '../auth/auth_error.dart';
+import '../auth/data/not_authenticated_exception.dart';
 import 'data/moderation_models.dart';
 import 'data/report_reason.dart';
 import 'moderation_audit_log_screen.dart';
@@ -44,8 +45,9 @@ class _ModerationQueueScreenState extends ConsumerState<ModerationQueueScreen> {
       setState(() => _items = items);
     } catch (e) {
       if (!mounted) return;
+      if (e is NotAuthenticatedException) showAuthAwareSnackBar(context, e, '');
       setState(() {
-        _error = e is HttpException ? e.message : "Couldn't load the queue. Try again.";
+        _error = describeAuthAwareError(e, "Couldn't load the queue. Try again.");
       });
     }
   }
@@ -73,11 +75,7 @@ class _ModerationQueueScreenState extends ConsumerState<ModerationQueueScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _actioning.remove(item.id));
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e is HttpException ? e.message : 'Action failed. Try again.'),
-        ),
-      );
+      showAuthAwareSnackBar(context, e, 'Action failed. Try again.');
     }
   }
 

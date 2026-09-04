@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../../auth/data/not_authenticated_exception.dart';
 import 'moderation_models.dart';
 
 /// Talks to the reporting and moderation endpoints
@@ -93,7 +94,7 @@ class ModerationApiClient {
   Future<String> _requireToken() async {
     final token = await tokenProvider();
     if (token == null || token.isEmpty) {
-      throw StateError('no auth token set — sign in first');
+      throw const NotAuthenticatedException();
     }
     return token;
   }

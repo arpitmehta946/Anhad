@@ -1,11 +1,10 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart' show Share, ShareResultStatus;
 
 import '../../theme/anhad_icons.dart';
 import '../../theme/colors.dart';
+import '../auth/auth_error.dart';
 import 'data/reel.dart';
 import 'data/reel_category.dart';
 import 'jugalbandi/jugalbandi_record_screen.dart';
@@ -215,10 +214,7 @@ class InteractionRail extends ConsumerWidget {
 
   void _showError(BuildContext context, Object e) {
     if (!context.mounted) return;
-    final message =
-        e is HttpException ? e.message : "Couldn't complete that. Try again.";
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    showAuthAwareSnackBar(context, e, "Couldn't complete that. Try again.");
   }
 }
 

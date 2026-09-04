@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../../auth/data/not_authenticated_exception.dart';
+
 /// The result of toggling Pranam or Smaran (api/internal/server/social.go's
 /// pranamHandler/smaranHandler) — `active` is the new state after this
 /// call, `count` is the reel's fresh total, both computed server-side in
@@ -136,7 +138,7 @@ class SocialApiClient {
   Future<String> _requireToken() async {
     final token = await tokenProvider();
     if (token == null || token.isEmpty) {
-      throw StateError('no auth token set — sign in first');
+      throw const NotAuthenticatedException();
     }
     return token;
   }

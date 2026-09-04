@@ -1,10 +1,11 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../theme/colors.dart';
+import '../auth/auth_error.dart';
+import '../auth/data/not_authenticated_exception.dart';
 import 'data/report_reason.dart';
 import 'moderation_provider.dart';
 
@@ -60,12 +61,13 @@ class _ReportReelSheetState extends ConsumerState<_ReportReelSheet> {
       }));
     } catch (e) {
       if (!mounted) return;
+      if (e is NotAuthenticatedException) showAuthAwareSnackBar(context, e, '');
       setState(() {
         _submitting = false;
         // Plain, person-facing copy (docs/FRONTEND_GUIDELINES.md §9) — the
         // two cases worth calling out specifically rather than a generic
         // failure message: already reported, and reporting too fast.
-        _error = e is HttpException ? e.message : "Couldn't submit the report. Try again.";
+        _error = describeAuthAwareError(e, "Couldn't submit the report. Try again.");
       });
     }
   }

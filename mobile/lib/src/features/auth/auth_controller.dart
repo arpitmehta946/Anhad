@@ -106,9 +106,42 @@ class AuthController extends StateNotifier<AuthState> {
   Future<void> get initialized => _restoreCompleter.future;
   final TokenStore _tokenStore;
 
+  // The in-memory source of truth for the rest of this process's life,
+  // once _restore() has primed them — [TokenStore] is write-through
+  // persistence for the *next* cold start, not the thing every call reads
+  // from. That distinction is what lets a refreshed token pair keep
+  // working for the current session even if persisting it to secure
+  // storage happens to fail right after a successful server-side rotation
+  // (see _refresh's own doc for why that specific failure must not be
+  // treated the same as a genuinely dead session).
+  String? _accessToken;
+  String? _refreshToken;
+
+  // Ensures at most one /v1/auth/refresh call is ever in flight at a time.
+  // api/internal/auth/token.go's RefreshTokens deletes the redeemed
+  // refresh token before minting the next one — "a client that races a
+  // refresh against itself gets exactly one winner" is that function's own
+  // stated intent, but nothing on this side previously enforced it: five
+  // independent API clients (reels, social, japa taps, japa streak,
+  // moderation) each resolve their own bearer token by calling
+  // validAccessToken() straight from their own request path, with no
+  // coordination between them. A cold app resume after the access token's
+  // 15-minute TTL has long since passed — exactly the "backgrounded for
+  // hours" scenario — fires several of these nearly simultaneously; without
+  // this, every loser of that race redeemed a token that had already been
+  // consumed by the winner, got ErrRefreshInvalid back, and (before this
+  // fix) wiped the *entire* stored session in response — including
+  // whichever fresh pair the winner had just saved, if its own save() had
+  // already landed. Single-flighting means every one of those concurrent
+  // callers shares the exact same refresh attempt and its exact same
+  // outcome, so the race this describes can no longer happen at all.
+  Future<String?>? _refreshInFlight;
+
   Future<void> _restore() async {
     final refreshToken = await _tokenStore.readRefreshToken();
     final accessToken = await _tokenStore.readAccessToken();
+    _refreshToken = refreshToken;
+    _accessToken = accessToken;
     if (!mounted) return;
     state = state.copyWith(
       checkingSession: false,
@@ -139,6 +172,8 @@ class AuthController extends StateNotifier<AuthState> {
     state = state.copyWith(isSubmitting: true, clearError: true);
     try {
       final tokens = await _api.verifyOtp(phoneNumber, code);
+      _accessToken = tokens.accessToken;
+      _refreshToken = tokens.refreshToken;
       await _tokenStore.save(
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
@@ -164,6 +199,8 @@ class AuthController extends StateNotifier<AuthState> {
   }
 
   Future<void> logout() async {
+    _accessToken = null;
+    _refreshToken = null;
     await _tokenStore.clear();
     if (!mounted) return;
     state = const AuthState(checkingSession: false);
@@ -174,8 +211,12 @@ class AuthController extends StateNotifier<AuthState> {
   /// refresh token itself has died (in which case this also signs the user
   /// out). Every authenticated API client should call this rather than
   /// reading a token once and holding onto it.
+  ///
+  /// Concurrent callers during a refresh all share the one in-flight
+  /// attempt via [_refreshInFlight] — see its own doc for why that's not
+  /// optional.
   Future<String?> validAccessToken() async {
-    final accessToken = await _tokenStore.readAccessToken();
+    final accessToken = _accessToken;
     if (accessToken == null) return null;
 
     final expiry = jwtExpiry(accessToken);
@@ -185,32 +226,73 @@ class AuthController extends StateNotifier<AuthState> {
             );
     if (!expiringSoon) return accessToken;
 
-    final refreshToken = await _tokenStore.readRefreshToken();
+    return _refreshInFlight ??=
+        _refresh().whenComplete(() => _refreshInFlight = null);
+  }
+
+  /// Redeems the stored refresh token for a new pair. Two failure modes
+  /// here are genuinely different and must not be handled the same way:
+  ///
+  /// - The *redemption itself* fails ([_api.refresh] throws) — the token
+  ///   was rejected outright (expired, already used, or revoked). There is
+  ///   no session left to recover; signing out is the only correct
+  ///   response.
+  /// - The redemption *succeeds* but persisting the result fails (a
+  ///   secure-storage write error, or the process dying mid-write during
+  ///   exactly the kind of backgrounding event that motivated this fix).
+  ///   By this point the server has already rotated: the *old* refresh
+  ///   token is dead either way, whether or not this write ever lands. The
+  ///   new pair is real and valid right now — wiping it out because it
+  ///   didn't get persisted would turn a successful refresh into a forced
+  ///   logout for no reason. Instead this keeps serving the new tokens
+  ///   from memory for the rest of this process's life; if the process
+  ///   really did die before the write landed, the next cold start's
+  ///   _restore() reads the stale token from disk and signs out cleanly
+  ///   then — a normal, explained "please sign in again," not a silent one.
+  Future<String?> _refresh() async {
+    final refreshToken = _refreshToken;
     if (refreshToken == null) return null;
 
+    final AuthTokens tokens;
     try {
-      final tokens = await _api.refresh(refreshToken);
-      await _tokenStore.save(
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-      );
-      if (mounted) {
-        state = state.copyWith(
-          role: jwtRole(tokens.accessToken),
-          isModerator: jwtIsModerator(tokens.accessToken),
-          userId: jwtUserId(tokens.accessToken),
-        );
-      }
-      return tokens.accessToken;
+      tokens = await _api.refresh(refreshToken);
     } catch (_) {
-      // The refresh token is dead (expired, already used, or revoked) —
-      // there's no way back into this session without logging in again.
+      _accessToken = null;
+      _refreshToken = null;
       await _tokenStore.clear();
       if (mounted) {
         state = state.copyWith(isAuthenticated: false, clearPhoneNumber: true);
       }
       return null;
     }
+
+    _accessToken = tokens.accessToken;
+    _refreshToken = tokens.refreshToken;
+    if (mounted) {
+      state = state.copyWith(
+        isAuthenticated: true,
+        role: jwtRole(tokens.accessToken),
+        isModerator: jwtIsModerator(tokens.accessToken),
+        userId: jwtUserId(tokens.accessToken),
+      );
+    }
+
+    try {
+      await _tokenStore.save(
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+      );
+    } catch (e, stackTrace) {
+      developer.log(
+        'failed to persist refreshed tokens — serving them from memory '
+        'for the rest of this session instead',
+        name: 'auth',
+        error: e,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return tokens.accessToken;
   }
 
   /// Turns a caught error into copy a person can actually act on

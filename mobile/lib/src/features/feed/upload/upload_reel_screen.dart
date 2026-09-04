@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../theme/colors.dart';
+import '../../auth/auth_error.dart';
+import '../../auth/data/not_authenticated_exception.dart';
 import '../data/reel_category.dart';
 import 'upload_reel_provider.dart';
 
@@ -123,12 +125,16 @@ class _UploadReelScreenState extends ConsumerState<UploadReelScreen> {
       Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
+      if (e is NotAuthenticatedException) showAuthAwareSnackBar(context, e, '');
       setState(() {
         _stage = _UploadStage.idle;
         // Plain, person-facing copy (docs/FRONTEND_GUIDELINES.md §9) — the
         // technical detail (a dropped connection, a malformed response)
-        // has nothing a person watching an upload bar can act on.
-        _error = "Couldn't upload — check your connection and try again.";
+        // has nothing a person watching an upload bar can act on, unlike
+        // being signed out, which describeAuthAwareError calls out
+        // specifically instead of folding it into this same fallback.
+        _error = describeAuthAwareError(
+            e, "Couldn't upload — check your connection and try again.");
       });
     }
   }

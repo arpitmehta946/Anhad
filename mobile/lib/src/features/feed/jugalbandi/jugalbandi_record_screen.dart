@@ -8,6 +8,8 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../theme/colors.dart';
+import '../../auth/auth_error.dart';
+import '../../auth/data/not_authenticated_exception.dart';
 import '../data/reel.dart';
 import '../data/reel_category.dart';
 import '../upload/upload_reel_provider.dart';
@@ -194,9 +196,10 @@ class _JugalbandiRecordScreenState
       Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
+      if (e is NotAuthenticatedException) showAuthAwareSnackBar(context, e, '');
       setState(() {
         _stage = _Stage.reviewing;
-        _error = e is HttpException ? e.message : "Couldn't post. Try again.";
+        _error = describeAuthAwareError(e, "Couldn't post. Try again.");
       });
     }
   }

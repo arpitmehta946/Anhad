@@ -1,10 +1,11 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../theme/colors.dart';
+import '../auth/auth_error.dart';
+import '../auth/data/not_authenticated_exception.dart';
 import 'data/moderation_models.dart';
 import 'moderation_provider.dart';
 
@@ -38,8 +39,9 @@ class _ModerationAuditLogScreenState extends ConsumerState<ModerationAuditLogScr
       setState(() => _entries = entries);
     } catch (e) {
       if (!mounted) return;
+      if (e is NotAuthenticatedException) showAuthAwareSnackBar(context, e, '');
       setState(() {
-        _error = e is HttpException ? e.message : "Couldn't load the audit log. Try again.";
+        _error = describeAuthAwareError(e, "Couldn't load the audit log. Try again.");
       });
     }
   }

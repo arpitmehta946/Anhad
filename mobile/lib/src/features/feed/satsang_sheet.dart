@@ -1,11 +1,12 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../theme/anhad_icons.dart';
 import '../../theme/colors.dart';
+import '../auth/auth_error.dart';
+import '../auth/data/not_authenticated_exception.dart';
 import 'data/reel.dart';
 import 'data/social_api_client.dart';
 import 'social_provider.dart';
@@ -95,10 +96,10 @@ class _SatsangSheetState extends ConsumerState<_SatsangSheet> {
       });
     } catch (e) {
       if (!mounted) return;
+      if (e is NotAuthenticatedException) showAuthAwareSnackBar(context, e, '');
       setState(() {
         _posting = false;
-        _postError =
-            e is HttpException ? e.message : "Couldn't post. Try again.";
+        _postError = describeAuthAwareError(e, "Couldn't post. Try again.");
       });
     }
   }

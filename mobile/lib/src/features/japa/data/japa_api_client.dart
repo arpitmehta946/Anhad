@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../../auth/data/not_authenticated_exception.dart';
+
 /// The server evaluated this exact batch and rejected it on its merits —
 /// anti-cheat (422) or malformed/unordered taps (400) (api/internal/japa/service.go).
 /// Retrying the identical batch will fail identically forever, which is why
@@ -63,7 +65,7 @@ class JapaApiClient implements JapaTapsSubmitter {
   Future<JapaStreak> getStreak() async {
     final token = await tokenProvider();
     if (token == null || token.isEmpty) {
-      throw StateError('no auth token set — use developer sign-in first');
+      throw const NotAuthenticatedException();
     }
 
     final response = await http.get(
@@ -84,7 +86,7 @@ class JapaApiClient implements JapaTapsSubmitter {
   Future<void> submitTaps(List<DateTime> taps) async {
     final token = await tokenProvider();
     if (token == null || token.isEmpty) {
-      throw StateError('no auth token set — use developer sign-in first');
+      throw const NotAuthenticatedException();
     }
 
     final response = await http.post(

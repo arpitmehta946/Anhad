@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +9,7 @@ import '../../theme/anhad_icons.dart';
 import '../../theme/colors.dart';
 import '../audio_library/audio_library_screen.dart';
 import '../auth/auth_controller.dart';
+import '../auth/auth_error.dart';
 import '../japa/japa_screen.dart';
 import '../moderation/moderation_queue_screen.dart';
 import '../moderation/report_reel_sheet.dart';
@@ -633,10 +633,7 @@ class _SevakRowState extends ConsumerState<_SevakRow> {
           .onReelChanged(widget.reel.copyWith(viewerFollowingCreator: active));
     } catch (e) {
       if (!mounted) return;
-      final message =
-          e is HttpException ? e.message : "Couldn't complete that. Try again.";
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
+      showAuthAwareSnackBar(context, e, "Couldn't complete that. Try again.");
     } finally {
       if (mounted) setState(() => _busy = false);
     }

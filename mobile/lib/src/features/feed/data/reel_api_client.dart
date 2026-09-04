@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../../auth/data/not_authenticated_exception.dart';
 import 'reel.dart';
 
 /// Where to upload a new reel's video bytes to, and under what id
@@ -211,7 +212,7 @@ class ReelApiClient {
   Future<String> _requireToken() async {
     final token = await tokenProvider();
     if (token == null || token.isEmpty) {
-      throw StateError('no auth token set — sign in first');
+      throw const NotAuthenticatedException();
     }
     return token;
   }
