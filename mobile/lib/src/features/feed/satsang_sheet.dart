@@ -7,6 +7,7 @@ import '../../theme/anhad_icons.dart';
 import '../../theme/colors.dart';
 import '../auth/auth_error.dart';
 import '../auth/data/not_authenticated_exception.dart';
+import '../profile/creator_profile_screen.dart';
 import 'data/reel.dart';
 import 'data/social_api_client.dart';
 import 'social_provider.dart';
@@ -177,11 +178,19 @@ class _SatsangSheetState extends ConsumerState<_SatsangSheet> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    c.userDisplayName ?? 'A fellow devotee',
-                                    style: theme.textTheme.labelMedium
-                                        ?.copyWith(
-                                            color: AnhadColors.accentDiya),
+                                  GestureDetector(
+                                    onTap: () => Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => CreatorProfileScreen(
+                                            userId: c.userId),
+                                      ),
+                                    ),
+                                    child: Text(
+                                      c.userDisplayName ?? 'A fellow devotee',
+                                      style: theme.textTheme.labelMedium
+                                          ?.copyWith(
+                                              color: AnhadColors.accentDiya),
+                                    ),
                                   ),
                                   const SizedBox(height: 2),
                                   Text(c.body,

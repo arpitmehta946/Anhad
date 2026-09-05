@@ -25,6 +25,13 @@ type Config struct {
 	// uploaded files when VideoStorageBackend is "local" — unused
 	// otherwise.
 	LocalUploadDir string
+	// LocalAvatarDir is where the local avatar-storage stub
+	// (internal/profile.LocalAvatarStorage) writes uploaded profile
+	// images. Unlike video, there's no non-local backend to switch to yet
+	// (docs/TECH_STACK.md never named one for avatars specifically) — an
+	// avatar is small enough that going through this API's own origin is
+	// fine even in production, unlike the large-video case §3 is about.
+	LocalAvatarDir string
 	// VideoStorageBackend selects where reel video actually lives: "local"
 	// (default — a disk-backed stand-in for Cloudflare Stream, so the
 	// upload/feed flow can be built and tested with no Cloudflare account)
@@ -98,6 +105,7 @@ func Load() (*Config, error) {
 		BootstrapAdminPhone: getenv("BOOTSTRAP_ADMIN_PHONE", ""),
 		PublicBaseURL:       getenv("PUBLIC_BASE_URL", "http://localhost:8080"),
 		LocalUploadDir:      getenv("LOCAL_UPLOAD_DIR", "./data/uploads"),
+		LocalAvatarDir:      getenv("LOCAL_AVATAR_DIR", "./data/avatars"),
 		VideoStorageBackend: getenv("VIDEO_STORAGE_BACKEND", "local"),
 
 		FFmpegPath: getenv("FFMPEG_PATH", "ffmpeg"),

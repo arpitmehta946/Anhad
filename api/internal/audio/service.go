@@ -106,7 +106,11 @@ func (s *Service) PublishTrackForReel(ctx context.Context, reelID string) error 
 // one category — same cursor-on-created_at shape as
 // internal/reels.Service.ListFeed and the same reasoning: an append-mostly,
 // never-reordered list is exactly what a cursor, not an offset, is for.
-func (s *Service) ListLibrary(ctx context.Context, category *string, before *time.Time, limit int) ([]*Track, error) {
+//
+// creatorID scopes this same listing to one creator's own tracks — the
+// profile page's sound-library tab reuses this endpoint rather than
+// needing its own.
+func (s *Service) ListLibrary(ctx context.Context, category, creatorID *string, before *time.Time, limit int) ([]*Track, error) {
 	if limit <= 0 || limit > 50 {
 		limit = 20
 	}
@@ -119,10 +123,11 @@ func (s *Service) ListLibrary(ctx context.Context, category *string, before *tim
 		WHERE t.is_public
 		  AND ($1::text IS NULL OR t.category = $1)
 		  AND ($2::timestamptz IS NULL OR t.created_at < $2)
+		  AND ($4::uuid IS NULL OR t.artist_id = $4)
 		ORDER BY t.created_at DESC
 		LIMIT $3
 	`
-	rows, err := s.store.PG.Query(ctx, query, category, before, limit)
+	rows, err := s.store.PG.Query(ctx, query, category, before, limit, creatorID)
 	if err != nil {
 		return nil, fmt.Errorf("list library: %w", err)
 	}

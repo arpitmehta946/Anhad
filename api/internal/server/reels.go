@@ -200,6 +200,14 @@ func listFeedHandler(logger *slog.Logger, reelsSvc *reels.Service, socialSvc *so
 			category = &c
 		}
 
+		// creator_id scopes this same endpoint to one creator's reels — the
+		// profile page's reel grid (docs/PRD.md's Sevak destination) reuses
+		// the feed rather than needing its own endpoint.
+		var creatorID *string
+		if c := r.URL.Query().Get("creator_id"); c != "" {
+			creatorID = &c
+		}
+
 		var before *time.Time
 		if c := r.URL.Query().Get("cursor"); c != "" {
 			t, err := time.Parse(time.RFC3339, c)
@@ -211,7 +219,7 @@ func listFeedHandler(logger *slog.Logger, reelsSvc *reels.Service, socialSvc *so
 		}
 
 		limit := 20
-		reelsList, err := reelsSvc.ListFeed(r.Context(), category, before, limit)
+		reelsList, err := reelsSvc.ListFeed(r.Context(), category, creatorID, before, limit)
 		if err != nil {
 			logger.Error("list feed failed", "error", err)
 			writeError(w, http.StatusInternalServerError, "failed to load feed")
@@ -313,6 +321,9 @@ func reelJSON(reel *reels.Reel, viewerPranamed, viewerSmaraned, viewerFollowingC
 	// all-or-nothing shape as the jugalbandi_source_* fields above.
 	if reel.UsedAudioTrackID != nil {
 		m["used_audio_track_id"] = *reel.UsedAudioTrackID
+		if reel.UsedAudioTrackCreatorID != nil {
+			m["used_audio_track_creator_id"] = *reel.UsedAudioTrackCreatorID
+		}
 		if reel.UsedAudioTrackCreatorDisplayName != nil {
 			m["used_audio_track_creator_display_name"] = *reel.UsedAudioTrackCreatorDisplayName
 		}

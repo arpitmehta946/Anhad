@@ -53,6 +53,7 @@ class Reel {
     this.audioTrackId,
     this.audioTrackReuseCount = 0,
     this.usedAudioTrackId,
+    this.usedAudioTrackCreatorId,
     this.usedAudioTrackCreatorDisplayName,
   });
 
@@ -87,6 +88,7 @@ class Reel {
         audioTrackReuseCount:
             (json['audio_track_reuse_count'] as num?)?.toInt() ?? 0,
         usedAudioTrackId: json['used_audio_track_id'] as String?,
+        usedAudioTrackCreatorId: json['used_audio_track_creator_id'] as String?,
         usedAudioTrackCreatorDisplayName:
             json['used_audio_track_creator_display_name'] as String?,
         createdAt: DateTime.parse(json['created_at'] as String),
@@ -116,6 +118,7 @@ class Reel {
   final String? audioTrackId;
   final int audioTrackReuseCount;
   final String? usedAudioTrackId;
+  final String? usedAudioTrackCreatorId;
   final String? usedAudioTrackCreatorDisplayName;
   final DateTime createdAt;
 
@@ -166,6 +169,7 @@ class Reel {
       audioTrackId: audioTrackId,
       audioTrackReuseCount: audioTrackReuseCount,
       usedAudioTrackId: usedAudioTrackId,
+      usedAudioTrackCreatorId: usedAudioTrackCreatorId,
       usedAudioTrackCreatorDisplayName: usedAudioTrackCreatorDisplayName,
     );
   }

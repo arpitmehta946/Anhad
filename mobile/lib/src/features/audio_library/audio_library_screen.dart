@@ -7,6 +7,7 @@ import 'package:just_audio/just_audio.dart';
 import '../../theme/colors.dart';
 import '../feed/data/reel_category.dart';
 import '../feed/upload/upload_reel_screen.dart';
+import '../profile/creator_profile_screen.dart';
 import 'audio_library_provider.dart';
 import 'data/audio_track.dart';
 
@@ -230,9 +231,25 @@ class _TrackTile extends StatelessWidget {
         onPressed: onTogglePreview,
       ),
       title: Text(track.title ?? reelCategoryLabel(track.category)),
-      subtitle: Text(
-        '${track.creatorDisplayName ?? 'A fellow devotee'} · '
-        'used in ${track.reuseCount} reel${track.reuseCount == 1 ? '' : 's'}',
+      // Only the creator's own name is a tap target — opens their profile
+      // (docs/PRD.md's Sevak destination) — not the whole subtitle line.
+      subtitle: Row(
+        children: [
+          GestureDetector(
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => CreatorProfileScreen(userId: track.creatorId),
+              ),
+            ),
+            child: Text(
+              track.creatorDisplayName ?? 'A fellow devotee',
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+          Text(
+            ' · used in ${track.reuseCount} reel${track.reuseCount == 1 ? '' : 's'}',
+          ),
+        ],
       ),
       trailing: TextButton(
         onPressed: onUseSound,

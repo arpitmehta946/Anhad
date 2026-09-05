@@ -100,6 +100,7 @@ type Reel struct {
 	AudioTrackID                       *string
 	AudioTrackReuseCount               int64
 	UsedAudioTrackID                   *string
+	UsedAudioTrackCreatorID            *string
 	UsedAudioTrackCreatorDisplayName   *string
 	CreatedAt                          time.Time
 }
@@ -397,7 +398,9 @@ func (s *Service) insertReelTx(
 }
 
 // ListFeed returns approved reels, newest first, optionally filtered to
-// one category — never ranked (docs/PRD.md's explicit instruction: "no
+// one category and/or one creator (the profile page's reel grid — docs/PRD.md's
+// Sevak destination — is just this same query scoped to creatorID, not a
+// separate feature) — never ranked (docs/PRD.md's explicit instruction: "no
 // ranking algorithm"), just the moderation-gated chronological order the
 // partial indexes in migrations 000004/000007 are built for.
 //
@@ -406,7 +409,7 @@ func (s *Service) insertReelTx(
 // offset-paginated — an offset silently skips or repeats rows if new
 // reels land between page requests, which a cursor on an append-mostly,
 // never-reordered feed doesn't.
-func (s *Service) ListFeed(ctx context.Context, category *string, before *time.Time, limit int) ([]*Reel, error) {
+func (s *Service) ListFeed(ctx context.Context, category, creatorID *string, before *time.Time, limit int) ([]*Reel, error) {
 	if limit <= 0 || limit > 50 {
 		limit = 20
 	}
@@ -428,7 +431,7 @@ func (s *Service) ListFeed(ctx context.Context, category *string, before *time.T
 		       r.jugalbandi_enabled, r.jugalbandi_reuse_count, r.jugalbandi_source_id,
 		       src.video_url, src.caption, src.creator_id, src_creator.display_name,
 		       own_audio.id, COALESCE(own_audio.reuse_count, 0),
-		       r.audio_id, used_audio_creator.display_name,
+		       r.audio_id, used_audio.artist_id, used_audio_creator.display_name,
 		       r.created_at
 		FROM reels r
 		JOIN users u ON u.id = r.creator_id
@@ -440,10 +443,11 @@ func (s *Service) ListFeed(ctx context.Context, category *string, before *time.T
 		WHERE r.moderation_status = 'approved'
 		  AND ($1::text IS NULL OR r.category = $1)
 		  AND ($2::timestamptz IS NULL OR r.created_at < $2)
+		  AND ($4::uuid IS NULL OR r.creator_id = $4)
 		ORDER BY r.created_at DESC
 		LIMIT $3
 	`
-	rows, err := s.store.PG.Query(ctx, query, category, before, limit)
+	rows, err := s.store.PG.Query(ctx, query, category, before, limit, creatorID)
 	if err != nil {
 		return nil, fmt.Errorf("list feed: %w", err)
 	}
@@ -460,7 +464,7 @@ func (s *Service) ListFeed(ctx context.Context, category *string, before *time.T
 			&reel.JugalbandiSourceVideoURL, &reel.JugalbandiSourceCaption,
 			&reel.JugalbandiSourceCreatorID, &reel.JugalbandiSourceCreatorDisplayName,
 			&reel.AudioTrackID, &reel.AudioTrackReuseCount,
-			&reel.UsedAudioTrackID, &reel.UsedAudioTrackCreatorDisplayName,
+			&reel.UsedAudioTrackID, &reel.UsedAudioTrackCreatorID, &reel.UsedAudioTrackCreatorDisplayName,
 			&reel.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan reel: %w", err)

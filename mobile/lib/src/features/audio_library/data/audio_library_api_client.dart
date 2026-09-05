@@ -26,9 +26,17 @@ class AudioLibraryApiClient {
 
   final String baseUrl;
 
-  Future<AudioLibraryPage> listLibrary({String? category, String? cursor}) async {
+  /// creatorId scopes this same listing to one creator's own tracks — a
+  /// profile page's sound-library tab is just this listing filtered, not a
+  /// separate endpoint.
+  Future<AudioLibraryPage> listLibrary({
+    String? category,
+    String? creatorId,
+    String? cursor,
+  }) async {
     final query = <String, String>{
       if (category != null) 'category': category,
+      if (creatorId != null) 'creator_id': creatorId,
       if (cursor != null) 'cursor': cursor,
     };
     final uri = Uri.parse('$baseUrl/v1/audio-tracks')

@@ -21,6 +21,14 @@ func listAudioLibraryHandler(logger *slog.Logger, audioSvc *audio.Service) http.
 			category = &c
 		}
 
+		// creator_id scopes this same listing to one creator's own tracks —
+		// the profile page's sound-library tab reuses the library endpoint
+		// rather than needing its own.
+		var creatorID *string
+		if c := r.URL.Query().Get("creator_id"); c != "" {
+			creatorID = &c
+		}
+
 		var before *time.Time
 		if c := r.URL.Query().Get("cursor"); c != "" {
 			t, err := time.Parse(time.RFC3339, c)
@@ -32,7 +40,7 @@ func listAudioLibraryHandler(logger *slog.Logger, audioSvc *audio.Service) http.
 		}
 
 		limit := 20
-		tracks, err := audioSvc.ListLibrary(r.Context(), category, before, limit)
+		tracks, err := audioSvc.ListLibrary(r.Context(), category, creatorID, before, limit)
 		if err != nil {
 			logger.Error("list audio library failed", "error", err)
 			writeError(w, http.StatusInternalServerError, "failed to load audio library")

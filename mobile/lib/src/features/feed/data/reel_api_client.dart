@@ -183,9 +183,17 @@ class ReelApiClient {
     return Reel.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
-  Future<FeedPage> listFeed({String? category, String? cursor}) async {
+  /// creatorId scopes this same feed to one creator's reels — a profile
+  /// page's reel grid (docs/PRD.md's Sevak destination) is just this feed
+  /// filtered, not a separate endpoint.
+  Future<FeedPage> listFeed({
+    String? category,
+    String? creatorId,
+    String? cursor,
+  }) async {
     final query = <String, String>{
       if (category != null) 'category': category,
+      if (creatorId != null) 'creator_id': creatorId,
       if (cursor != null) 'cursor': cursor,
     };
     final uri = Uri.parse('$baseUrl/v1/reels')

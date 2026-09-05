@@ -14,6 +14,7 @@ import (
 	"github.com/anhad/api/internal/config"
 	"github.com/anhad/api/internal/japa"
 	"github.com/anhad/api/internal/moderation"
+	"github.com/anhad/api/internal/profile"
 	"github.com/anhad/api/internal/reels"
 	"github.com/anhad/api/internal/social"
 	"github.com/anhad/api/internal/store"
@@ -69,6 +70,12 @@ func New(cfg *config.Config, logger *slog.Logger, st *store.Store) (*http.Server
 	moderationSvc := moderation.NewService(st, audioSvc, logger)
 	socialSvc := social.NewService(st)
 
+	avatarStorage, err := profile.NewLocalAvatarStorage(cfg.LocalAvatarDir, cfg.PublicBaseURL)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("set up local avatar storage: %w", err)
+	}
+	profileSvc := profile.NewService(st, avatarStorage)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthHandler(logger, st))
 	mux.HandleFunc("POST /v1/auth/otp/request", requestOTPHandler(logger, authSvc))
@@ -117,6 +124,13 @@ func New(cfg *config.Config, logger *slog.Logger, st *store.Store) (*http.Server
 		requireAuth(authSvc)(requireModerator(removeReelHandler(logger, moderationSvc))))
 	mux.Handle("GET /v1/moderation/audit-log",
 		requireAuth(authSvc)(requireModerator(listAuditLogHandler(logger, moderationSvc))))
+
+	// Creator profile pages (docs/PRD.md's Sevak destination) — browsing is
+	// public like the feed itself; editing is only ever your own.
+	mux.Handle("GET /v1/users/{id}/profile", optionalAuth(authSvc)(getProfileHandler(logger, profileSvc)))
+	mux.Handle("PATCH /v1/me/profile", requireAuth(authSvc)(updateProfileHandler(logger, profileSvc)))
+	mux.Handle("POST /v1/me/avatar", requireAuth(authSvc)(uploadAvatarHandler(logger, profileSvc)))
+	mux.HandleFunc("GET /v1/profile/avatars/{id}/file", playLocalAvatarHandler(logger, avatarStorage))
 
 	if localStorage != nil {
 		mux.HandleFunc("PUT /v1/reels/uploads/{id}/file", uploadLocalVideoHandler(logger, localStorage))
