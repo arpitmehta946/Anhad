@@ -48,6 +48,14 @@ class AppTheme {
       // derive from `primary` — left unset, chrome reads as generic
       // Material purple instead of the Dusk/Prabhat palette above.
       surfaceTint: Colors.transparent,
+      // Left unset, this falls back to `onPrimary` (== textPrimary above),
+      // which collides with SnackBar's own background — `inverseSurface`
+      // falls back to `onSurface` (== textPrimary too) — making the
+      // SnackBarAction ("Sign in", auth/auth_error.dart) render in the
+      // exact same color as the SnackBar behind it: text-on-itself,
+      // invisible. inversePrimary has no other consumer in Flutter's
+      // Material widgets, so accentDiya here only ever affects that action.
+      inversePrimary: AnhadColors.accentDiya,
     );
 
     return ThemeData(
