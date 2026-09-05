@@ -217,6 +217,31 @@ class ReelApiClient {
     return FeedPage(reels: items, nextCursor: body['next_cursor'] as String?);
   }
 
+  /// "Appears On" (docs/PRD.md §7.2, §7.3) — other creators' reels that
+  /// feature [creatorId] without belonging to them: a Jugalbandi duet
+  /// recorded against one of their reels, or a reel built from one of
+  /// their audio tracks via "use this sound." A Spotify/TIDAL-style credit
+  /// list Instagram has no equivalent of.
+  Future<FeedPage> listAppearsOn(String creatorId, {String? cursor}) async {
+    final query = <String, String>{if (cursor != null) 'cursor': cursor};
+    final uri = Uri.parse('$baseUrl/v1/users/$creatorId/appears-on')
+        .replace(queryParameters: query.isEmpty ? null : query);
+    final token = await tokenProvider();
+    final response = await http.get(
+      uri,
+      headers: token != null ? {'Authorization': 'Bearer $token'} : null,
+    );
+    if (response.statusCode != 200) {
+      throw HttpException(_errorMessage(response));
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final items = (body['reels'] as List)
+        .cast<Map<String, dynamic>>()
+        .map(Reel.fromJson)
+        .toList();
+    return FeedPage(reels: items, nextCursor: body['next_cursor'] as String?);
+  }
+
   Future<String> _requireToken() async {
     final token = await tokenProvider();
     if (token == null || token.isEmpty) {

@@ -20,11 +20,20 @@ import (
 	"github.com/anhad/api/internal/store"
 )
 
-const maxBioLength = 160
+const (
+	maxBioLength       = 160
+	maxTraditionLength = 80
+	maxLineageLength   = 120
+	maxListedItems     = 10 // languages, instruments
+)
 
 var (
-	ErrProfileNotFound = errors.New("profile not found")
-	ErrBioTooLong      = errors.New("bio must be 160 characters or fewer")
+	ErrProfileNotFound    = errors.New("profile not found")
+	ErrBioTooLong         = errors.New("bio must be 160 characters or fewer")
+	ErrTraditionTooLong   = errors.New("tradition must be 80 characters or fewer")
+	ErrLineageTooLong     = errors.New("lineage must be 120 characters or fewer")
+	ErrTooManyLanguages   = errors.New("list up to 10 languages")
+	ErrTooManyInstruments = errors.New("list up to 10 instruments")
 )
 
 // Profile is a user's public-facing profile — everything a visitor to
@@ -34,17 +43,36 @@ var (
 // one. ViewerIsFollowing is only meaningful when the request carried a
 // bearer token for someone other than this profile's own owner; the HTTP
 // handler is responsible for not asking otherwise.
+//
+// TotalReuseCount — the SUM of reuse_count across every public track this
+// creator owns in audio_library — is deliberately the metric this profile
+// leads with, ahead of SevakCount: a follower count measures attention;
+// reuse count measures how many *other reels actually use this creator's
+// voice*, which is both a truer read of a devotional singer's reach and
+// literally the input to the future royalty engine (docs/PRD.md §10.4) —
+// showing it prominently is showing a creator the number their earnings
+// will someday be based on, not vanity.
+//
+// Tradition, Lineage, Languages, and Instruments (migration 000015) are
+// all optional identity fields — an empty value means a creator hasn't
+// filled them in, not an error, and none of them are gated behind
+// verification the way IsVerifiedArtist is.
 type Profile struct {
 	ID                      string
 	Handle                  string
 	DisplayName             *string
 	AvatarURL               *string
 	Bio                     *string
+	Tradition               *string
+	Lineage                 *string
+	Languages               []string
+	Instruments             []string
 	Role                    string
 	IsModerator             bool
 	IsVerifiedArtist        bool
 	IsMinorPerformerAccount bool
 	SevakCount              int64
+	TotalReuseCount         int64
 	ViewerIsFollowing       bool
 }
 
@@ -91,6 +119,12 @@ func (s *Service) GetProfile(ctx context.Context, userID string, viewerID *strin
 		return nil, fmt.Errorf("count sevaks: %w", err)
 	}
 
+	if err := s.store.PG.QueryRow(ctx,
+		`SELECT COALESCE(SUM(reuse_count), 0) FROM audio_library WHERE artist_id = $1 AND is_public`, userID,
+	).Scan(&p.TotalReuseCount); err != nil {
+		return nil, fmt.Errorf("sum reuse count: %w", err)
+	}
+
 	if viewerID != nil {
 		if err := s.store.PG.QueryRow(ctx,
 			`SELECT EXISTS(SELECT 1 FROM sevaks WHERE follower_id = $1 AND creator_id = $2)`,
@@ -106,12 +140,14 @@ func (s *Service) GetProfile(ctx context.Context, userID string, viewerID *strin
 func (s *Service) loadProfile(ctx context.Context, userID string) (*Profile, error) {
 	const query = `
 		SELECT id, coalesce(handle, ''), display_name, avatar_url, bio,
+		       tradition, lineage, languages, instruments,
 		       role, is_moderator, is_verified_artist, is_minor_performer_account
 		FROM users WHERE id = $1
 	`
 	var p Profile
 	err := s.store.PG.QueryRow(ctx, query, userID).Scan(
 		&p.ID, &p.Handle, &p.DisplayName, &p.AvatarURL, &p.Bio,
+		&p.Tradition, &p.Lineage, &p.Languages, &p.Instruments,
 		&p.Role, &p.IsModerator, &p.IsVerifiedArtist, &p.IsMinorPerformerAccount,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -170,34 +206,74 @@ func randomHandle() (string, error) {
 	return "devotee_" + hex.EncodeToString(b), nil
 }
 
-// UpdateProfile changes the fields their own owner is allowed to change —
-// display name and bio. Handle and is_verified_artist aren't editable
+// ProfileEdits is everything UpdateProfile can change — display name and
+// bio (docs/PRD.md's own instruction on what's editable) plus the optional
+// identity fields (migration 000015). Handle and is_verified_artist aren't
 // here: the former has no chooser UI yet (see GetProfile's own doc), and
 // the latter is a moderator/admin-granted marker, never self-declared.
 //
-// Unlike internal/reels.CreateReel's optional fields, both arguments here
-// are plain strings, not pointers: this is a full profile-edit form, not a
-// sparse patch, so the caller always submits its current values for both —
-// an empty string means "clear it," not "leave unchanged," which is
-// exactly what an edit form needs (a caption at *creation* time has no
-// prior value to preserve, so nil-means-omitted is the right shape there;
-// a bio being *edited* does, so this needs the opposite).
-func (s *Service) UpdateProfile(ctx context.Context, userID, displayName, bio string) (*Profile, error) {
-	if len(bio) > maxBioLength {
+// Unlike internal/reels.CreateReel's optional fields, every field here is
+// a plain string/slice, not a pointer: this is a full profile-edit form,
+// not a sparse patch, so the caller always submits its current value for
+// all of them — an empty value means "clear it," not "leave unchanged,"
+// which is exactly what an edit form needs (a caption at *creation* time
+// has no prior value to preserve, so nil-means-omitted is the right shape
+// there; a bio, tradition, lineage, languages, or instruments list being
+// *edited* does, so this needs the opposite).
+type ProfileEdits struct {
+	DisplayName string
+	Bio         string
+	Tradition   string
+	Lineage     string
+	Languages   []string
+	Instruments []string
+}
+
+func (s *Service) UpdateProfile(ctx context.Context, userID string, edits ProfileEdits) (*Profile, error) {
+	switch {
+	case len(edits.Bio) > maxBioLength:
 		return nil, ErrBioTooLong
+	case len(edits.Tradition) > maxTraditionLength:
+		return nil, ErrTraditionTooLong
+	case len(edits.Lineage) > maxLineageLength:
+		return nil, ErrLineageTooLong
+	case len(edits.Languages) > maxListedItems:
+		return nil, ErrTooManyLanguages
+	case len(edits.Instruments) > maxListedItems:
+		return nil, ErrTooManyInstruments
 	}
 
-	var displayNamePtr, bioPtr *string
-	if displayName != "" {
-		displayNamePtr = &displayName
+	var displayNamePtr, bioPtr, traditionPtr, lineagePtr *string
+	if edits.DisplayName != "" {
+		displayNamePtr = &edits.DisplayName
 	}
-	if bio != "" {
-		bioPtr = &bio
+	if edits.Bio != "" {
+		bioPtr = &edits.Bio
+	}
+	if edits.Tradition != "" {
+		traditionPtr = &edits.Tradition
+	}
+	if edits.Lineage != "" {
+		lineagePtr = &edits.Lineage
+	}
+	// Languages/instruments have no "unset" state distinct from empty —
+	// unlike the free-text fields above, an empty list is already exactly
+	// what "hasn't filled this in" means at the database level (migration
+	// 000015's own DEFAULT '{}'), so these pass through as-is rather than
+	// needing a nil-vs-empty distinction.
+	if edits.Languages == nil {
+		edits.Languages = []string{}
+	}
+	if edits.Instruments == nil {
+		edits.Instruments = []string{}
 	}
 
 	if _, err := s.store.PG.Exec(ctx,
-		`UPDATE users SET display_name = $2, bio = $3 WHERE id = $1`,
-		userID, displayNamePtr, bioPtr,
+		`UPDATE users SET
+			display_name = $2, bio = $3,
+			tradition = $4, lineage = $5, languages = $6, instruments = $7
+		 WHERE id = $1`,
+		userID, displayNamePtr, bioPtr, traditionPtr, lineagePtr, edits.Languages, edits.Instruments,
 	); err != nil {
 		return nil, fmt.Errorf("update profile: %w", err)
 	}

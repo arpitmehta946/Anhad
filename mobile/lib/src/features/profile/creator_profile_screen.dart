@@ -10,6 +10,7 @@ import '../audio_library/data/audio_track.dart';
 import '../auth/auth_controller.dart';
 import '../auth/auth_error.dart';
 import '../feed/data/reel.dart';
+import '../feed/data/reel_api_client.dart' show FeedPage;
 import '../feed/data/reel_category.dart';
 import '../feed/social_provider.dart';
 import '../feed/upload/upload_reel_provider.dart';
@@ -100,7 +101,7 @@ class _CreatorProfileScreenState extends ConsumerState<CreatorProfileScreen> {
       body: profile == null
           ? _bodyBeforeLoaded()
           : DefaultTabController(
-              length: 2,
+              length: 3,
               child: NestedScrollView(
                 headerSliverBuilder: (context, _) => [
                   SliverToBoxAdapter(child: _ProfileHeader(
@@ -117,8 +118,30 @@ class _CreatorProfileScreenState extends ConsumerState<CreatorProfileScreen> {
                 ],
                 body: TabBarView(
                   children: [
-                    _ReelsGrid(userId: widget.userId),
+                    _ReelsGrid(
+                      fetchPage: ({cursor}) => ref
+                          .read(reelApiClientProvider)
+                          .listFeed(creatorId: widget.userId, cursor: cursor),
+                      emptyMessage: 'No reels yet.',
+                      loadErrorMessage:
+                          "Couldn't load reels. Check your connection and try again.",
+                    ),
                     _SoundsList(userId: widget.userId),
+                    // Appears On (docs/PRD.md §7.2, §7.3): other creators'
+                    // reels that feature this creator without belonging to
+                    // them — a Jugalbandi duet against their reel, or a
+                    // reel built from their audio. A Spotify/TIDAL-style
+                    // credit list Instagram has no equivalent of.
+                    _ReelsGrid(
+                      fetchPage: ({cursor}) => ref
+                          .read(reelApiClientProvider)
+                          .listAppearsOn(widget.userId, cursor: cursor),
+                      emptyMessage:
+                          'Nothing yet — reels that duet with them or '
+                          'reuse their audio will show up here.',
+                      loadErrorMessage:
+                          "Couldn't load this. Check your connection and try again.",
+                    ),
                   ],
                 ),
               ),
@@ -220,11 +243,37 @@ class _ProfileHeader extends StatelessWidget {
                       style: theme.textTheme.bodyMedium
                           ?.copyWith(color: AnhadColors.duskTextSecondary),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 10),
+                    // Reuse count leads, Sevak count follows, smaller — a
+                    // follower count measures attention; reuse count
+                    // measures how many other reels actually carry this
+                    // creator's voice, which is both a truer read of a
+                    // devotional singer's reach and literally the input to
+                    // the future royalty engine (docs/PRD.md §10.4). This
+                    // is a plain number, not a stat block with levels or
+                    // XP (docs/FRONTEND_GUIDELINES.md §10).
+                    RichText(
+                      text: TextSpan(
+                        style: theme.textTheme.titleLarge?.copyWith(
+                            color: AnhadColors.accentDiya,
+                            fontWeight: FontWeight.bold),
+                        children: [
+                          TextSpan(text: '${profile.totalReuseCount}'),
+                          TextSpan(
+                            text: ' reuse'
+                                '${profile.totalReuseCount == 1 ? '' : 's'}',
+                            style: theme.textTheme.bodyMedium
+                                ?.copyWith(color: AnhadColors.duskTextSecondary),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 2),
                     Text(
                       '${profile.sevakCount} Sevak'
                       '${profile.sevakCount == 1 ? '' : 's'}',
-                      style: theme.textTheme.bodyMedium,
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: AnhadColors.duskTextSecondary),
                     ),
                   ],
                 ),
@@ -234,6 +283,10 @@ class _ProfileHeader extends StatelessWidget {
           if (profile.bio != null && profile.bio!.isNotEmpty) ...[
             const SizedBox(height: 12),
             Text(profile.bio!, style: theme.textTheme.bodyMedium),
+          ],
+          if (profile.hasIdentityDetails) ...[
+            const SizedBox(height: 12),
+            _IdentityBlock(profile: profile),
           ],
           const SizedBox(height: 16),
           SizedBox(
@@ -259,6 +312,40 @@ class _ProfileHeader extends StatelessWidget {
   }
 }
 
+/// The optional identity block — tradition/sampradaya, lineage, languages,
+/// instruments (migration 000015) — shown only when at least one is set.
+/// Plain labeled text, not badges or chips with implied levels: these are
+/// facts about who someone is, not achievements.
+class _IdentityBlock extends StatelessWidget {
+  const _IdentityBlock({required this.profile});
+
+  final CreatorProfile profile;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final rows = <String>[
+      if (profile.tradition != null && profile.tradition!.isNotEmpty)
+        profile.tradition!,
+      if (profile.lineage != null && profile.lineage!.isNotEmpty)
+        profile.lineage!,
+      if (profile.languages.isNotEmpty) profile.languages.join(', '),
+      if (profile.instruments.isNotEmpty) profile.instruments.join(', '),
+    ];
+    return Wrap(
+      spacing: 12,
+      runSpacing: 4,
+      children: rows
+          .map((r) => Text(
+                r,
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: AnhadColors.duskTextSecondary),
+              ))
+          .toList(),
+    );
+  }
+}
+
 class _TabBarDelegate extends SliverPersistentHeaderDelegate {
   const _TabBarDelegate();
 
@@ -273,7 +360,11 @@ class _TabBarDelegate extends SliverPersistentHeaderDelegate {
     return Container(
       color: Theme.of(context).scaffoldBackgroundColor,
       child: const TabBar(
-        tabs: [Tab(text: 'Reels'), Tab(text: 'Sounds')],
+        tabs: [
+          Tab(text: 'Reels'),
+          Tab(text: 'Sounds'),
+          Tab(text: 'Appears On'),
+        ],
       ),
     );
   }
@@ -283,15 +374,26 @@ class _TabBarDelegate extends SliverPersistentHeaderDelegate {
       false;
 }
 
-/// A grid of a creator's own reels — deliberately not a video thumbnail
-/// grid (no thumbnail-extraction pipeline exists yet, docs/GAPS.md-worthy
-/// on its own); each tile shows what's already known about the reel
-/// (category, Pranam count) without needing one. Tapping a tile opens the
-/// real thing (SingleReelScreen).
+/// A grid of reels — deliberately not a video thumbnail grid (no
+/// thumbnail-extraction pipeline exists yet, docs/GAPS.md-worthy on its
+/// own); each tile shows what's already known about the reel (category,
+/// Pranam count) without needing one. Tapping a tile opens the real thing
+/// (SingleReelScreen).
+///
+/// Reused for both the profile's own Reels tab and its Appears On tab —
+/// [fetchPage] is the only thing that differs between them
+/// (ReelApiClient.listFeed vs .listAppearsOn), so this widget doesn't need
+/// to know which one it's showing.
 class _ReelsGrid extends ConsumerStatefulWidget {
-  const _ReelsGrid({required this.userId});
+  const _ReelsGrid({
+    required this.fetchPage,
+    required this.emptyMessage,
+    required this.loadErrorMessage,
+  });
 
-  final String userId;
+  final Future<FeedPage> Function({String? cursor}) fetchPage;
+  final String emptyMessage;
+  final String loadErrorMessage;
 
   @override
   ConsumerState<_ReelsGrid> createState() => _ReelsGridState();
@@ -314,10 +416,8 @@ class _ReelsGridState extends ConsumerState<_ReelsGrid> {
     if (_loading) return;
     setState(() => _loading = true);
     try {
-      final page = await ref.read(reelApiClientProvider).listFeed(
-            creatorId: widget.userId,
-            cursor: reset ? null : _nextCursor,
-          );
+      final page =
+          await widget.fetchPage(cursor: reset ? null : _nextCursor);
       if (!mounted) return;
       setState(() {
         if (reset) _reels.clear();
@@ -332,7 +432,7 @@ class _ReelsGridState extends ConsumerState<_ReelsGrid> {
       setState(() {
         _loading = false;
         _loaded = true;
-        _error = "Couldn't load reels. Check your connection and try again.";
+        _error = widget.loadErrorMessage;
       });
     }
   }
@@ -350,7 +450,7 @@ class _ReelsGridState extends ConsumerState<_ReelsGrid> {
       return _EmptyState(message: _error!, onRetry: () => _load(reset: true));
     }
     if (_reels.isEmpty) {
-      return const _EmptyState(message: 'No reels yet.');
+      return _EmptyState(message: widget.emptyMessage);
     }
     return NotificationListener<ScrollNotification>(
       onNotification: (n) {

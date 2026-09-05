@@ -397,63 +397,42 @@ func (s *Service) insertReelTx(
 	return &reel, nil
 }
 
-// ListFeed returns approved reels, newest first, optionally filtered to
-// one category and/or one creator (the profile page's reel grid — docs/PRD.md's
-// Sevak destination — is just this same query scoped to creatorID, not a
-// separate feature) — never ranked (docs/PRD.md's explicit instruction: "no
-// ranking algorithm"), just the moderation-gated chronological order the
-// partial indexes in migrations 000004/000007 are built for.
-//
-// Cursor-paginated on created_at: pass the last item's CreatedAt as
-// before to get the next page, nil for the first page. Deliberately not
-// offset-paginated — an offset silently skips or repeats rows if new
-// reels land between page requests, which a cursor on an append-mostly,
-// never-reordered feed doesn't.
-func (s *Service) ListFeed(ctx context.Context, category, creatorID *string, before *time.Time, limit int) ([]*Reel, error) {
-	if limit <= 0 || limit > 50 {
-		limit = 20
-	}
+// reelSelectAndJoins is the SELECT/FROM/JOIN shared by every reel listing
+// this package does (ListFeed, ListAppearsOn) — same columns, same joins,
+// only the WHERE/ORDER/LIMIT differ per caller. The LEFT JOINs (never
+// INNER — most reels aren't a Jugalbandi result, and a NULL
+// jugalbandi_source_id/id-of-own-track/audio_id must still return the
+// row) pull in: the Jugalbandi source reel's own video/caption and its
+// creator's identity (docs/PRD.md §7.2); this reel's own audio_library
+// row, if one's been published yet and is still public (docs/PRD.md §7.3,
+// §4.5) — own_audio's join condition itself enforces the "not reusable if
+// excluded" rule, not just a WHERE clause after the fact; and, separately,
+// the track this reel was itself built from via "use this sound"
+// (r.audio_id — see insertReelTx's own doc for why this predates the
+// feature), if any.
+const reelSelectAndJoins = `
+	SELECT r.id, r.creator_id, u.display_name, r.video_url, r.caption, r.category,
+	       r.moderation_status, u.comments_mode,
+	       r.like_count, r.comment_count, r.share_count, r.save_count,
+	       r.jugalbandi_enabled, r.jugalbandi_reuse_count, r.jugalbandi_source_id,
+	       src.video_url, src.caption, src.creator_id, src_creator.display_name,
+	       own_audio.id, COALESCE(own_audio.reuse_count, 0),
+	       r.audio_id, used_audio.artist_id, used_audio_creator.display_name,
+	       r.created_at
+	FROM reels r
+	JOIN users u ON u.id = r.creator_id
+	LEFT JOIN reels src ON src.id = r.jugalbandi_source_id
+	LEFT JOIN users src_creator ON src_creator.id = src.creator_id
+	LEFT JOIN audio_library own_audio ON own_audio.source_reel_id = r.id AND own_audio.is_public
+	LEFT JOIN audio_library used_audio ON used_audio.id = r.audio_id
+	LEFT JOIN users used_audio_creator ON used_audio_creator.id = used_audio.artist_id
+`
 
-	// The LEFT JOINs (never INNER — most reels aren't a Jugalbandi result,
-	// and a NULL jugalbandi_source_id/id-of-own-track/audio_id must still
-	// return the row) pull in: the Jugalbandi source reel's own
-	// video/caption and its creator's identity (docs/PRD.md §7.2); this
-	// reel's own audio_library row, if one's been published yet and is
-	// still public (docs/PRD.md §7.3, §4.5) — own_audio's join condition
-	// itself enforces the "not reusable if excluded" rule, not just a
-	// WHERE clause after the fact; and, separately, the track this reel
-	// was itself built from via "use this sound" (r.audio_id — see
-	// insertReelTx's own doc for why this predates the feature), if any.
-	const query = `
-		SELECT r.id, r.creator_id, u.display_name, r.video_url, r.caption, r.category,
-		       r.moderation_status, u.comments_mode,
-		       r.like_count, r.comment_count, r.share_count, r.save_count,
-		       r.jugalbandi_enabled, r.jugalbandi_reuse_count, r.jugalbandi_source_id,
-		       src.video_url, src.caption, src.creator_id, src_creator.display_name,
-		       own_audio.id, COALESCE(own_audio.reuse_count, 0),
-		       r.audio_id, used_audio.artist_id, used_audio_creator.display_name,
-		       r.created_at
-		FROM reels r
-		JOIN users u ON u.id = r.creator_id
-		LEFT JOIN reels src ON src.id = r.jugalbandi_source_id
-		LEFT JOIN users src_creator ON src_creator.id = src.creator_id
-		LEFT JOIN audio_library own_audio ON own_audio.source_reel_id = r.id AND own_audio.is_public
-		LEFT JOIN audio_library used_audio ON used_audio.id = r.audio_id
-		LEFT JOIN users used_audio_creator ON used_audio_creator.id = used_audio.artist_id
-		WHERE r.moderation_status = 'approved'
-		  AND ($1::text IS NULL OR r.category = $1)
-		  AND ($2::timestamptz IS NULL OR r.created_at < $2)
-		  AND ($4::uuid IS NULL OR r.creator_id = $4)
-		ORDER BY r.created_at DESC
-		LIMIT $3
-	`
-	rows, err := s.store.PG.Query(ctx, query, category, before, limit, creatorID)
-	if err != nil {
-		return nil, fmt.Errorf("list feed: %w", err)
-	}
-	defer rows.Close()
-
-	reels := make([]*Reel, 0, limit)
+// scanReelRows drains rows built from reelSelectAndJoins's own column list
+// — shared so ListFeed and ListAppearsOn can't drift out of sync with
+// each other on what each column means.
+func scanReelRows(rows pgx.Rows) ([]*Reel, error) {
+	reels := make([]*Reel, 0)
 	for rows.Next() {
 		var reel Reel
 		if err := rows.Scan(
@@ -472,9 +451,76 @@ func (s *Service) ListFeed(ctx context.Context, category, creatorID *string, bef
 		reels = append(reels, &reel)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list feed: %w", err)
+		return nil, fmt.Errorf("list reels: %w", err)
 	}
 	return reels, nil
+}
+
+// ListFeed returns approved reels, newest first, optionally filtered to
+// one category and/or one creator (the profile page's reel grid — docs/PRD.md's
+// Sevak destination — is just this same query scoped to creatorID, not a
+// separate feature) — never ranked (docs/PRD.md's explicit instruction: "no
+// ranking algorithm"), just the moderation-gated chronological order the
+// partial indexes in migrations 000004/000007 are built for.
+//
+// Cursor-paginated on created_at: pass the last item's CreatedAt as
+// before to get the next page, nil for the first page. Deliberately not
+// offset-paginated — an offset silently skips or repeats rows if new
+// reels land between page requests, which a cursor on an append-mostly,
+// never-reordered feed doesn't.
+func (s *Service) ListFeed(ctx context.Context, category, creatorID *string, before *time.Time, limit int) ([]*Reel, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+
+	query := reelSelectAndJoins + `
+		WHERE r.moderation_status = 'approved'
+		  AND ($1::text IS NULL OR r.category = $1)
+		  AND ($2::timestamptz IS NULL OR r.created_at < $2)
+		  AND ($4::uuid IS NULL OR r.creator_id = $4)
+		ORDER BY r.created_at DESC
+		LIMIT $3
+	`
+	rows, err := s.store.PG.Query(ctx, query, category, before, limit, creatorID)
+	if err != nil {
+		return nil, fmt.Errorf("list feed: %w", err)
+	}
+	defer rows.Close()
+	return scanReelRows(rows)
+}
+
+// ListAppearsOn returns other creators' reels that feature creatorID
+// without belonging to them — the profile page's "Appears On" section
+// (a Spotify/TIDAL-style credit list Instagram has no equivalent of): a
+// reel counts as a credit either because it was built from one of
+// creatorID's own audio_library tracks via "use this sound" (docs/PRD.md
+// §7.3), or because it's a Jugalbandi duet recorded against one of
+// creatorID's own reels (docs/PRD.md §7.2) — both are cases where
+// creatorID's voice/performance appears inside a reel someone *else*
+// uploaded. Deliberately excludes creatorID's own reels even when they'd
+// otherwise match (e.g. a reel creatorID built from their own track) —
+// those already show up in the ordinary reel grid, and listing them again
+// here would double-count exactly the kind of thing this section exists
+// to distinguish from.
+func (s *Service) ListAppearsOn(ctx context.Context, creatorID string, before *time.Time, limit int) ([]*Reel, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+
+	query := reelSelectAndJoins + `
+		WHERE r.moderation_status = 'approved'
+		  AND r.creator_id != $1
+		  AND (src.creator_id = $1 OR used_audio.artist_id = $1)
+		  AND ($3::timestamptz IS NULL OR r.created_at < $3)
+		ORDER BY r.created_at DESC
+		LIMIT $2
+	`
+	rows, err := s.store.PG.Query(ctx, query, creatorID, limit, before)
+	if err != nil {
+		return nil, fmt.Errorf("list appears-on: %w", err)
+	}
+	defer rows.Close()
+	return scanReelRows(rows)
 }
 
 func isValidCategory(category string) bool {

@@ -226,34 +226,82 @@ func listFeedHandler(logger *slog.Logger, reelsSvc *reels.Service, socialSvc *so
 			return
 		}
 
-		var pranamed, smaraned, following map[string]bool
-		if claims, ok := auth.ClaimsFromContext(r.Context()); ok {
-			reelIDs := make([]string, len(reelsList))
-			creatorIDs := make([]string, len(reelsList))
-			for i, reel := range reelsList {
-				reelIDs[i] = reel.ID
-				creatorIDs[i] = reel.CreatorID
-			}
-			pranamed, smaraned, following, err = socialSvc.ViewerState(r.Context(), claims.Subject, reelIDs, creatorIDs)
-			if err != nil {
-				// A viewer-state failure shouldn't turn "load the feed" into
-				// a 500 — every reel just renders as not-yet-pranam'd/
-				// smaran'd/followed for this response, which is wrong but
-				// recoverable the moment the next page loads successfully.
-				logger.Error("load viewer state failed", "error", err)
-			}
+		writeReelListResponse(w, r, logger, socialSvc, reelsList, limit)
+	}
+}
+
+// appearsOnHandler is the profile page's "Appears On" section (docs/PRD.md
+// §7.2, §7.3) — a credit list of other creators' reels that feature this
+// creator, without belonging to them (internal/reels.Service.ListAppearsOn's
+// own doc explains the two ways a reel earns a credit). Public like the
+// feed itself for the same reason listFeedHandler is.
+func appearsOnHandler(logger *slog.Logger, reelsSvc *reels.Service, socialSvc *social.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		creatorID := r.PathValue("id")
+		if creatorID == "" {
+			writeError(w, http.StatusBadRequest, "user id required")
+			return
 		}
 
-		items := make([]map[string]any, len(reelsList))
-		for i, reel := range reelsList {
-			items[i] = reelJSON(reel, pranamed[reel.ID], smaraned[reel.ID], following[reel.CreatorID])
+		var before *time.Time
+		if c := r.URL.Query().Get("cursor"); c != "" {
+			t, err := time.Parse(time.RFC3339, c)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "cursor must be an RFC3339 timestamp")
+				return
+			}
+			before = &t
 		}
-		resp := map[string]any{"reels": items}
-		if len(reelsList) == limit {
-			resp["next_cursor"] = reelsList[len(reelsList)-1].CreatedAt.Format(time.RFC3339Nano)
+
+		limit := 20
+		reelsList, err := reelsSvc.ListAppearsOn(r.Context(), creatorID, before, limit)
+		if err != nil {
+			logger.Error("list appears-on failed", "creator_id", creatorID, "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to load appears-on")
+			return
 		}
-		writeJSON(w, http.StatusOK, resp)
+
+		writeReelListResponse(w, r, logger, socialSvc, reelsList, limit)
 	}
+}
+
+// writeReelListResponse folds in the caller's own Pranam/Smaran/Sevak
+// state (if authenticated) and writes the {"reels": [...], "next_cursor":
+// ...} shape shared by every reel-listing endpoint (listFeedHandler,
+// appearsOnHandler) — one place for that shape to live rather than each
+// handler re-deriving it slightly differently.
+func writeReelListResponse(
+	w http.ResponseWriter, r *http.Request, logger *slog.Logger,
+	socialSvc *social.Service, reelsList []*reels.Reel, limit int,
+) {
+	var pranamed, smaraned, following map[string]bool
+	if claims, ok := auth.ClaimsFromContext(r.Context()); ok {
+		reelIDs := make([]string, len(reelsList))
+		creatorIDs := make([]string, len(reelsList))
+		for i, reel := range reelsList {
+			reelIDs[i] = reel.ID
+			creatorIDs[i] = reel.CreatorID
+		}
+		var err error
+		pranamed, smaraned, following, err = socialSvc.ViewerState(r.Context(), claims.Subject, reelIDs, creatorIDs)
+		if err != nil {
+			// A viewer-state failure shouldn't turn "load the list" into a
+			// 500 — every reel just renders as not-yet-pranam'd/smaran'd/
+			// followed for this response, which is wrong but recoverable
+			// the moment the next page loads successfully.
+			logger.Error("load viewer state failed", "error", err)
+		}
+	}
+
+	items := make([]map[string]any, len(reelsList))
+	for i, reel := range reelsList {
+		items[i] = reelJSON(reel, pranamed[reel.ID], smaraned[reel.ID], following[reel.CreatorID])
+	}
+	resp := map[string]any{"reels": items}
+	if len(reelsList) == limit {
+		resp["next_cursor"] = reelsList[len(reelsList)-1].CreatedAt.Format(time.RFC3339Nano)
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // reelJSON always includes the four engagement counts and the creator's

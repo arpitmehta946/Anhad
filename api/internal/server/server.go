@@ -128,6 +128,7 @@ func New(cfg *config.Config, logger *slog.Logger, st *store.Store) (*http.Server
 	// Creator profile pages (docs/PRD.md's Sevak destination) — browsing is
 	// public like the feed itself; editing is only ever your own.
 	mux.Handle("GET /v1/users/{id}/profile", optionalAuth(authSvc)(getProfileHandler(logger, profileSvc)))
+	mux.Handle("GET /v1/users/{id}/appears-on", optionalAuth(authSvc)(appearsOnHandler(logger, reelsSvc, socialSvc)))
 	mux.Handle("PATCH /v1/me/profile", requireAuth(authSvc)(updateProfileHandler(logger, profileSvc)))
 	mux.Handle("POST /v1/me/avatar", requireAuth(authSvc)(uploadAvatarHandler(logger, profileSvc)))
 	mux.HandleFunc("GET /v1/profile/avatars/{id}/file", playLocalAvatarHandler(logger, avatarStorage))

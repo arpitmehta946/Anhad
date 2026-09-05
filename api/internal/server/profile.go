@@ -49,10 +49,10 @@ func getProfileHandler(logger *slog.Logger, profileSvc *profile.Service) http.Ha
 	}
 }
 
-// updateProfileHandler edits the caller's own profile — display name and
-// bio, always both, since this is a full profile-edit form rather than a
-// sparse patch (internal/profile.Service.UpdateProfile's own doc explains
-// why that lets an empty string mean "cleared" unambiguously).
+// updateProfileHandler edits the caller's own profile — always the full
+// set of editable fields, since this is a full profile-edit form rather
+// than a sparse patch (internal/profile.Service.ProfileEdits's own doc
+// explains why that lets an empty value mean "cleared" unambiguously).
 func updateProfileHandler(logger *slog.Logger, profileSvc *profile.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := auth.ClaimsFromContext(r.Context())
@@ -62,19 +62,34 @@ func updateProfileHandler(logger *slog.Logger, profileSvc *profile.Service) http
 		}
 
 		var req struct {
-			DisplayName string `json:"display_name"`
-			Bio         string `json:"bio"`
+			DisplayName string   `json:"display_name"`
+			Bio         string   `json:"bio"`
+			Tradition   string   `json:"tradition"`
+			Lineage     string   `json:"lineage"`
+			Languages   []string `json:"languages"`
+			Instruments []string `json:"instruments"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
 
-		p, err := profileSvc.UpdateProfile(r.Context(), claims.Subject, req.DisplayName, req.Bio)
+		p, err := profileSvc.UpdateProfile(r.Context(), claims.Subject, profile.ProfileEdits{
+			DisplayName: req.DisplayName,
+			Bio:         req.Bio,
+			Tradition:   req.Tradition,
+			Lineage:     req.Lineage,
+			Languages:   req.Languages,
+			Instruments: req.Instruments,
+		})
 		switch {
 		case err == nil:
 			writeJSON(w, http.StatusOK, profileJSON(p))
-		case errors.Is(err, profile.ErrBioTooLong):
+		case errors.Is(err, profile.ErrBioTooLong),
+			errors.Is(err, profile.ErrTraditionTooLong),
+			errors.Is(err, profile.ErrLineageTooLong),
+			errors.Is(err, profile.ErrTooManyLanguages),
+			errors.Is(err, profile.ErrTooManyInstruments):
 			writeError(w, http.StatusBadRequest, err.Error())
 		default:
 			logger.Error("update profile failed", "error", err)
@@ -160,7 +175,16 @@ func profileJSON(p *profile.Profile) map[string]any {
 		"is_verified_artist":         p.IsVerifiedArtist,
 		"is_minor_performer_account": p.IsMinorPerformerAccount,
 		"sevak_count":                p.SevakCount,
-		"viewer_is_following":        p.ViewerIsFollowing,
+		// Leads the response on purpose — see internal/profile.Profile's
+		// own doc on why reuse count, not follower count, is this
+		// profile's headline metric.
+		"total_reuse_count":   p.TotalReuseCount,
+		"viewer_is_following": p.ViewerIsFollowing,
+		// Always present, even empty — migration 000015's own columns
+		// default to '{}', not NULL, so there's no nil-slice case to
+		// special-case the way the *string fields below need.
+		"languages":   p.Languages,
+		"instruments": p.Instruments,
 	}
 	if p.DisplayName != nil {
 		m["display_name"] = *p.DisplayName
@@ -170,6 +194,12 @@ func profileJSON(p *profile.Profile) map[string]any {
 	}
 	if p.Bio != nil {
 		m["bio"] = *p.Bio
+	}
+	if p.Tradition != nil {
+		m["tradition"] = *p.Tradition
+	}
+	if p.Lineage != nil {
+		m["lineage"] = *p.Lineage
 	}
 	return m
 }

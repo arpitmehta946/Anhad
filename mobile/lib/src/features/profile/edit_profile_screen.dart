@@ -8,10 +8,12 @@ import '../../theme/colors.dart';
 import 'data/creator_profile.dart';
 import 'profile_provider.dart';
 
-/// Editing your own profile — display name, bio, and avatar, the three
-/// fields docs/PRD.md names as editable. Handle and Verified Artist aren't
-/// here: neither has a chooser/grant flow built (see
-/// internal/profile.Service.UpdateProfile's own doc).
+/// Editing your own profile — display name, bio, and avatar (docs/PRD.md's
+/// own instruction on what's editable), plus the optional identity fields
+/// (tradition/sampradaya, lineage, languages, instruments) that
+/// distinguish this profile from a generic social one. Handle and
+/// Verified Artist aren't here: neither has a chooser/grant flow built
+/// (see internal/profile.ProfileEdits's own doc).
 class EditProfileScreen extends ConsumerStatefulWidget {
   const EditProfileScreen({super.key, required this.profile});
 
@@ -25,6 +27,14 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   late final _displayNameController =
       TextEditingController(text: widget.profile.displayName ?? '');
   late final _bioController = TextEditingController(text: widget.profile.bio ?? '');
+  late final _traditionController =
+      TextEditingController(text: widget.profile.tradition ?? '');
+  late final _lineageController =
+      TextEditingController(text: widget.profile.lineage ?? '');
+  late final _languagesController =
+      TextEditingController(text: widget.profile.languages.join(', '));
+  late final _instrumentsController =
+      TextEditingController(text: widget.profile.instruments.join(', '));
   File? _newAvatar;
   bool _saving = false;
   String? _error;
@@ -33,8 +43,22 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   void dispose() {
     _displayNameController.dispose();
     _bioController.dispose();
+    _traditionController.dispose();
+    _lineageController.dispose();
+    _languagesController.dispose();
+    _instrumentsController.dispose();
     super.dispose();
   }
+
+  /// Splits a comma-separated field into a trimmed, non-empty list — the
+  /// simplest input this screen can offer for a repeatable field without
+  /// building chip-entry UI for what's still an optional, low-traffic set
+  /// of values.
+  List<String> _splitList(String text) => text
+      .split(',')
+      .map((s) => s.trim())
+      .where((s) => s.isNotEmpty)
+      .toList();
 
   Future<void> _pickAvatar() async {
     final picked =
@@ -54,6 +78,10 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       var profile = await client.updateProfile(
         displayName: _displayNameController.text.trim(),
         bio: _bioController.text.trim(),
+        tradition: _traditionController.text.trim(),
+        lineage: _lineageController.text.trim(),
+        languages: _splitList(_languagesController.text),
+        instruments: _splitList(_instrumentsController.text),
       );
       final avatar = _newAvatar;
       if (avatar != null) {
@@ -143,6 +171,65 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                 decoration: const InputDecoration(
                   hintText: 'A short line about you',
                 ),
+              ),
+              const SizedBox(height: 16),
+              Text('Tradition / sampradaya', style: theme.textTheme.titleMedium),
+              const SizedBox(height: 4),
+              Text(
+                'Optional — e.g. Gaudiya Vaishnav, Nirmala, Nath.',
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: AnhadColors.duskTextSecondary),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _traditionController,
+                enabled: !_saving,
+                maxLength: 80,
+                decoration: const InputDecoration(hintText: 'Optional'),
+              ),
+              const SizedBox(height: 16),
+              Text('Lineage', style: theme.textTheme.titleMedium),
+              const SizedBox(height: 4),
+              Text(
+                'Optional — your guru or parampara, if you\'d like to name it.',
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: AnhadColors.duskTextSecondary),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _lineageController,
+                enabled: !_saving,
+                maxLength: 120,
+                decoration: const InputDecoration(hintText: 'Optional'),
+              ),
+              const SizedBox(height: 16),
+              Text('Languages', style: theme.textTheme.titleMedium),
+              const SizedBox(height: 4),
+              Text(
+                'Optional — separate with commas.',
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: AnhadColors.duskTextSecondary),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _languagesController,
+                enabled: !_saving,
+                decoration: const InputDecoration(hintText: 'Hindi, Braj Bhasha'),
+              ),
+              const SizedBox(height: 16),
+              Text('Instruments', style: theme.textTheme.titleMedium),
+              const SizedBox(height: 4),
+              Text(
+                'Optional — separate with commas.',
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: AnhadColors.duskTextSecondary),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _instrumentsController,
+                enabled: !_saving,
+                decoration:
+                    const InputDecoration(hintText: 'Harmonium, Tabla'),
               ),
               if (_error != null) ...[
                 const SizedBox(height: 16),

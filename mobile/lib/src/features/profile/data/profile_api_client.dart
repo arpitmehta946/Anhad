@@ -31,13 +31,17 @@ class ProfileApiClient {
         jsonDecode(response.body) as Map<String, dynamic>);
   }
 
-  /// Always sends both fields, even if empty — this is a full profile-edit
-  /// form, not a sparse patch (api/internal/profile.Service.UpdateProfile's
-  /// own doc explains why an empty string has to mean "cleared," not
-  /// "unchanged," for an edit like this).
+  /// Always sends every field, even if empty — this is a full profile-edit
+  /// form, not a sparse patch (api/internal/profile.ProfileEdits's own doc
+  /// explains why an empty value has to mean "cleared," not "unchanged,"
+  /// for an edit like this).
   Future<CreatorProfile> updateProfile({
     required String displayName,
     required String bio,
+    required String tradition,
+    required String lineage,
+    required List<String> languages,
+    required List<String> instruments,
   }) async {
     final token = await _requireToken();
     final response = await http.patch(
@@ -46,7 +50,14 @@ class ProfileApiClient {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
       },
-      body: jsonEncode({'display_name': displayName, 'bio': bio}),
+      body: jsonEncode({
+        'display_name': displayName,
+        'bio': bio,
+        'tradition': tradition,
+        'lineage': lineage,
+        'languages': languages,
+        'instruments': instruments,
+      }),
     );
     if (response.statusCode != 200) {
       throw HttpException(_errorMessage(response));
