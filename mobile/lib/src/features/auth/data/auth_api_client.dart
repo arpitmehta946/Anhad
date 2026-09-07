@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../../../config.dart';
+
 /// A freshly issued or refreshed token pair, mirroring the JSON shape
 /// returned by `/v1/auth/otp/verify` and `/v1/auth/refresh`
 /// (api/internal/server/auth.go).
@@ -34,38 +36,51 @@ class AuthApiClient {
   final String baseUrl;
 
   Future<void> requestOtp(String phoneNumber) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/v1/auth/otp/request'),
-      headers: const {'Content-Type': 'application/json'},
-      body: jsonEncode({'phone_number': phoneNumber}),
-    );
+    final response = await http
+        .post(
+          Uri.parse('$baseUrl/v1/auth/otp/request'),
+          headers: const {'Content-Type': 'application/json'},
+          body: jsonEncode({'phone_number': phoneNumber}),
+        )
+        .timeout(apiRequestTimeout);
     if (response.statusCode != 202) {
       throw HttpException(_errorMessage(response));
     }
   }
 
   Future<AuthTokens> verifyOtp(String phoneNumber, String code) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/v1/auth/otp/verify'),
-      headers: const {'Content-Type': 'application/json'},
-      body: jsonEncode({'phone_number': phoneNumber, 'code': code}),
-    );
+    final response = await http
+        .post(
+          Uri.parse('$baseUrl/v1/auth/otp/verify'),
+          headers: const {'Content-Type': 'application/json'},
+          body: jsonEncode({'phone_number': phoneNumber, 'code': code}),
+        )
+        .timeout(apiRequestTimeout);
     if (response.statusCode != 200) {
       throw HttpException(_errorMessage(response));
     }
-    return AuthTokens.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    return AuthTokens.fromJson(
+        jsonDecode(response.body) as Map<String, dynamic>);
   }
 
+  /// This one matters more than the others: AuthController.validAccessToken
+  /// awaits this via its single-flight _refreshInFlight (auth_controller.dart)
+  /// on every screen that needs a token, so a hang here — not just a
+  /// failure — used to freeze every authenticated flow in the app at once,
+  /// not merely the one screen that happened to trigger the refresh.
   Future<AuthTokens> refresh(String refreshToken) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/v1/auth/refresh'),
-      headers: const {'Content-Type': 'application/json'},
-      body: jsonEncode({'refresh_token': refreshToken}),
-    );
+    final response = await http
+        .post(
+          Uri.parse('$baseUrl/v1/auth/refresh'),
+          headers: const {'Content-Type': 'application/json'},
+          body: jsonEncode({'refresh_token': refreshToken}),
+        )
+        .timeout(apiRequestTimeout);
     if (response.statusCode != 200) {
       throw HttpException(_errorMessage(response));
     }
-    return AuthTokens.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    return AuthTokens.fromJson(
+        jsonDecode(response.body) as Map<String, dynamic>);
   }
 
   String _errorMessage(http.Response response) {

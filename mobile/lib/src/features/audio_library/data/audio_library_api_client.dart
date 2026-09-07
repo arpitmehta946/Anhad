@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../../../config.dart';
 import 'audio_track.dart';
 
 class AudioLibraryPage {
@@ -41,7 +42,7 @@ class AudioLibraryApiClient {
     };
     final uri = Uri.parse('$baseUrl/v1/audio-tracks')
         .replace(queryParameters: query.isEmpty ? null : query);
-    final response = await http.get(uri);
+    final response = await http.get(uri).timeout(apiRequestTimeout);
     if (response.statusCode != 200) {
       throw HttpException(_errorMessage(response));
     }
@@ -59,7 +60,9 @@ class AudioLibraryApiClient {
   /// from the caller's own point of view: a failed count bump shouldn't
   /// interrupt playback the listener is already hearing.
   Future<void> recordPlay(String trackId) async {
-    await http.post(Uri.parse('$baseUrl/v1/audio-tracks/$trackId/plays'));
+    await http
+        .post(Uri.parse('$baseUrl/v1/audio-tracks/$trackId/plays'))
+        .timeout(apiRequestTimeout);
   }
 
   String _errorMessage(http.Response response) {

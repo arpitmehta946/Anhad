@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../../../config.dart';
 import '../../auth/data/not_authenticated_exception.dart';
 
 /// The result of toggling Pranam or Smaran (api/internal/server/social.go's
@@ -68,10 +69,12 @@ class SocialApiClient {
 
   Future<bool> toggleSevak(String creatorId) async {
     final token = await _requireToken();
-    final response = await http.post(
-      Uri.parse('$baseUrl/v1/users/$creatorId/sevak'),
-      headers: {'Authorization': 'Bearer $token'},
-    );
+    final response = await http
+        .post(
+          Uri.parse('$baseUrl/v1/users/$creatorId/sevak'),
+          headers: {'Authorization': 'Bearer $token'},
+        )
+        .timeout(apiRequestTimeout);
     if (response.statusCode != 200) {
       throw HttpException(_errorMessage(response));
     }
@@ -81,10 +84,12 @@ class SocialApiClient {
 
   Future<int> recordPrasad(String reelId) async {
     final token = await _requireToken();
-    final response = await http.post(
-      Uri.parse('$baseUrl/v1/reels/$reelId/prasad'),
-      headers: {'Authorization': 'Bearer $token'},
-    );
+    final response = await http
+        .post(
+          Uri.parse('$baseUrl/v1/reels/$reelId/prasad'),
+          headers: {'Authorization': 'Bearer $token'},
+        )
+        .timeout(apiRequestTimeout);
     if (response.statusCode != 200) {
       throw HttpException(_errorMessage(response));
     }
@@ -94,14 +99,16 @@ class SocialApiClient {
 
   Future<SatsangComment> postSatsang(String reelId, String body) async {
     final token = await _requireToken();
-    final response = await http.post(
-      Uri.parse('$baseUrl/v1/reels/$reelId/satsang'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-      body: jsonEncode({'body': body}),
-    );
+    final response = await http
+        .post(
+          Uri.parse('$baseUrl/v1/reels/$reelId/satsang'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode({'body': body}),
+        )
+        .timeout(apiRequestTimeout);
     if (response.statusCode != 201) {
       throw HttpException(_errorMessage(response));
     }
@@ -110,8 +117,9 @@ class SocialApiClient {
   }
 
   Future<List<SatsangComment>> listSatsang(String reelId) async {
-    final response =
-        await http.get(Uri.parse('$baseUrl/v1/reels/$reelId/satsang'));
+    final response = await http
+        .get(Uri.parse('$baseUrl/v1/reels/$reelId/satsang'))
+        .timeout(apiRequestTimeout);
     if (response.statusCode != 200) {
       throw HttpException(_errorMessage(response));
     }
@@ -124,10 +132,12 @@ class SocialApiClient {
 
   Future<ToggleResult> _postToggle(String url) async {
     final token = await _requireToken();
-    final response = await http.post(
-      Uri.parse(url),
-      headers: {'Authorization': 'Bearer $token'},
-    );
+    final response = await http
+        .post(
+          Uri.parse(url),
+          headers: {'Authorization': 'Bearer $token'},
+        )
+        .timeout(apiRequestTimeout);
     if (response.statusCode != 200) {
       throw HttpException(_errorMessage(response));
     }

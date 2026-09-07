@@ -47,11 +47,15 @@ docker-compose.yml Local Postgres 16 + Redis 7
 docs/              Planning docs (see table above)
 ```
 
-This is currently mid-**Phase 1** per `docs/IMPLEMENTATION_PLAN.md` — phone-OTP
-auth and the japa tap counter (screen-off capture, offline-first sync, streak
-tracking with the §10.3 Seva Pass trial grant) are built and exercised
-end-to-end. Reel upload, the feed, the seeded audio library, and moderation
-v0 — the rest of Phase 1's exit criteria — are not built yet.
+This is currently mid-**Phase 1** per `docs/IMPLEMENTATION_PLAN.md`. Phone-OTP
+auth, the japa tap counter (screen-off capture, offline-first sync, streak
+tracking with the §10.3 Seva Pass trial grant), reel upload, the feed,
+moderation v0, and the seeded-audio-library mechanism (migration, storage,
+`cmd/seedaudio`, "use this sound") are all built and exercised end-to-end.
+What's left of Phase 1's exit criteria is content, not code: the seeded
+library's manifest (`api/seed_audio/manifest.json`) lists the ~15–20 target
+tracks, but the actual recordings haven't been sourced yet, so
+`cmd/seedaudio` currently seeds nothing.
 
 ## Tech stack at a glance
 

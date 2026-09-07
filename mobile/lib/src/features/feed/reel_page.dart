@@ -247,8 +247,16 @@ class _ReelPageState extends State<ReelPage> {
                         : () => _openProfile(
                             context, widget.reel.usedAudioTrackCreatorId!),
                     child: Text(
-                      'Audio by '
-                      '${widget.reel.usedAudioTrackCreatorDisplayName ?? 'a fellow devotee'}',
+                      // usedAudioTrackCreatorId is only ever null for a
+                      // platform track (docs/PRD.md §7.3 P0) — no artist
+                      // row exists to be missing a display name in the
+                      // first place (api/internal/audio.Track's own doc),
+                      // unlike the Jugalbandi line above where a null
+                      // display name still means a real, nameless creator.
+                      widget.reel.usedAudioTrackCreatorId == null
+                          ? 'Audio by Anhad'
+                          : 'Audio by '
+                              '${widget.reel.usedAudioTrackCreatorDisplayName ?? 'a fellow devotee'}',
                       style: const TextStyle(
                         color: Colors.white70,
                         fontSize: 12,

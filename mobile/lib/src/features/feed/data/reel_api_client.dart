@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../../../config.dart';
 import '../../auth/data/not_authenticated_exception.dart';
 import 'reel.dart';
 
@@ -57,10 +58,12 @@ class ReelApiClient {
 
   Future<UploadTarget> createUploadTarget() async {
     final token = await _requireToken();
-    final response = await http.post(
-      Uri.parse('$baseUrl/v1/reels/uploads'),
-      headers: {'Authorization': 'Bearer $token'},
-    );
+    final response = await http
+        .post(
+          Uri.parse('$baseUrl/v1/reels/uploads'),
+          headers: {'Authorization': 'Bearer $token'},
+        )
+        .timeout(apiRequestTimeout);
     if (response.statusCode != 201) {
       throw HttpException(_errorMessage(response));
     }
@@ -84,7 +87,8 @@ class ReelApiClient {
           onDone: request.sink.close,
           onError: request.sink.addError,
         );
-    final response = await http.Client().send(request);
+    final response =
+        await http.Client().send(request).timeout(apiUploadTimeout);
     if (response.statusCode != 204) {
       final body = await response.stream.bytesToString();
       throw HttpException('video upload failed: ${response.statusCode} $body');
@@ -103,21 +107,24 @@ class ReelApiClient {
     bool? audioLibraryEnabled,
   }) async {
     final token = await _requireToken();
-    final response = await http.post(
-      Uri.parse('$baseUrl/v1/reels'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-      body: jsonEncode({
-        'video_id': videoId,
-        'category': category,
-        if (caption != null && caption.isNotEmpty) 'caption': caption,
-        if (jugalbandiEnabled != null) 'jugalbandi_enabled': jugalbandiEnabled,
-        if (audioLibraryEnabled != null)
-          'audio_library_enabled': audioLibraryEnabled,
-      }),
-    );
+    final response = await http
+        .post(
+          Uri.parse('$baseUrl/v1/reels'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode({
+            'video_id': videoId,
+            'category': category,
+            if (caption != null && caption.isNotEmpty) 'caption': caption,
+            if (jugalbandiEnabled != null)
+              'jugalbandi_enabled': jugalbandiEnabled,
+            if (audioLibraryEnabled != null)
+              'audio_library_enabled': audioLibraryEnabled,
+          }),
+        )
+        .timeout(apiRequestTimeout);
     if (response.statusCode != 201) {
       throw HttpException(_errorMessage(response));
     }
@@ -136,18 +143,20 @@ class ReelApiClient {
     String? caption,
   }) async {
     final token = await _requireToken();
-    final response = await http.post(
-      Uri.parse('$baseUrl/v1/reels/$sourceReelId/jugalbandi'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-      body: jsonEncode({
-        'video_id': videoId,
-        'category': category,
-        if (caption != null && caption.isNotEmpty) 'caption': caption,
-      }),
-    );
+    final response = await http
+        .post(
+          Uri.parse('$baseUrl/v1/reels/$sourceReelId/jugalbandi'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode({
+            'video_id': videoId,
+            'category': category,
+            if (caption != null && caption.isNotEmpty) 'caption': caption,
+          }),
+        )
+        .timeout(apiRequestTimeout);
     if (response.statusCode != 201) {
       throw HttpException(_errorMessage(response));
     }
@@ -165,18 +174,20 @@ class ReelApiClient {
     String? caption,
   }) async {
     final token = await _requireToken();
-    final response = await http.post(
-      Uri.parse('$baseUrl/v1/audio-tracks/$trackId/use'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-      body: jsonEncode({
-        'video_id': videoId,
-        'category': category,
-        if (caption != null && caption.isNotEmpty) 'caption': caption,
-      }),
-    );
+    final response = await http
+        .post(
+          Uri.parse('$baseUrl/v1/audio-tracks/$trackId/use'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode({
+            'video_id': videoId,
+            'category': category,
+            if (caption != null && caption.isNotEmpty) 'caption': caption,
+          }),
+        )
+        .timeout(apiRequestTimeout);
     if (response.statusCode != 201) {
       throw HttpException(_errorMessage(response));
     }
@@ -202,10 +213,12 @@ class ReelApiClient {
     // feed (tokenProvider returning null is the normal, expected case for
     // an anonymous viewer, not an error), just without viewer_* state.
     final token = await tokenProvider();
-    final response = await http.get(
-      uri,
-      headers: token != null ? {'Authorization': 'Bearer $token'} : null,
-    );
+    final response = await http
+        .get(
+          uri,
+          headers: token != null ? {'Authorization': 'Bearer $token'} : null,
+        )
+        .timeout(apiRequestTimeout);
     if (response.statusCode != 200) {
       throw HttpException(_errorMessage(response));
     }
@@ -227,10 +240,12 @@ class ReelApiClient {
     final uri = Uri.parse('$baseUrl/v1/users/$creatorId/appears-on')
         .replace(queryParameters: query.isEmpty ? null : query);
     final token = await tokenProvider();
-    final response = await http.get(
-      uri,
-      headers: token != null ? {'Authorization': 'Bearer $token'} : null,
-    );
+    final response = await http
+        .get(
+          uri,
+          headers: token != null ? {'Authorization': 'Bearer $token'} : null,
+        )
+        .timeout(apiRequestTimeout);
     if (response.statusCode != 200) {
       throw HttpException(_errorMessage(response));
     }

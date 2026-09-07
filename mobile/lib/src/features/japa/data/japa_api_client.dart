@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../../../config.dart';
 import '../../auth/data/not_authenticated_exception.dart';
 
 /// The server evaluated this exact batch and rejected it on its merits —
@@ -68,10 +69,12 @@ class JapaApiClient implements JapaTapsSubmitter {
       throw const NotAuthenticatedException();
     }
 
-    final response = await http.get(
-      Uri.parse('$baseUrl/v1/japa/streak'),
-      headers: {'Authorization': 'Bearer $token'},
-    );
+    final response = await http
+        .get(
+          Uri.parse('$baseUrl/v1/japa/streak'),
+          headers: {'Authorization': 'Bearer $token'},
+        )
+        .timeout(apiRequestTimeout);
     if (response.statusCode != 200) {
       throw HttpException(
         'japa streak fetch failed: ${response.statusCode} ${response.body}',
@@ -89,16 +92,18 @@ class JapaApiClient implements JapaTapsSubmitter {
       throw const NotAuthenticatedException();
     }
 
-    final response = await http.post(
-      Uri.parse('$baseUrl/v1/japa/taps'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-      body: jsonEncode({
-        'taps': taps.map((t) => t.toUtc().toIso8601String()).toList(),
-      }),
-    );
+    final response = await http
+        .post(
+          Uri.parse('$baseUrl/v1/japa/taps'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode({
+            'taps': taps.map((t) => t.toUtc().toIso8601String()).toList(),
+          }),
+        )
+        .timeout(apiRequestTimeout);
 
     if (response.statusCode == 400 || response.statusCode == 422) {
       throw JapaTapsRejected(response.statusCode, response.body);

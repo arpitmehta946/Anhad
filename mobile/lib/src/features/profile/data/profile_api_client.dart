@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../../../config.dart';
 import '../../auth/data/not_authenticated_exception.dart';
 import 'creator_profile.dart';
 
@@ -20,10 +21,12 @@ class ProfileApiClient {
     // profile, just without viewer_is_following — same shape as
     // ReelApiClient.listFeed's own token attach.
     final token = await tokenProvider();
-    final response = await http.get(
-      Uri.parse('$baseUrl/v1/users/$userId/profile'),
-      headers: token != null ? {'Authorization': 'Bearer $token'} : null,
-    );
+    final response = await http
+        .get(
+          Uri.parse('$baseUrl/v1/users/$userId/profile'),
+          headers: token != null ? {'Authorization': 'Bearer $token'} : null,
+        )
+        .timeout(apiRequestTimeout);
     if (response.statusCode != 200) {
       throw HttpException(_errorMessage(response));
     }
@@ -44,21 +47,23 @@ class ProfileApiClient {
     required List<String> instruments,
   }) async {
     final token = await _requireToken();
-    final response = await http.patch(
-      Uri.parse('$baseUrl/v1/me/profile'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-      body: jsonEncode({
-        'display_name': displayName,
-        'bio': bio,
-        'tradition': tradition,
-        'lineage': lineage,
-        'languages': languages,
-        'instruments': instruments,
-      }),
-    );
+    final response = await http
+        .patch(
+          Uri.parse('$baseUrl/v1/me/profile'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode({
+            'display_name': displayName,
+            'bio': bio,
+            'tradition': tradition,
+            'lineage': lineage,
+            'languages': languages,
+            'instruments': instruments,
+          }),
+        )
+        .timeout(apiRequestTimeout);
     if (response.statusCode != 200) {
       throw HttpException(_errorMessage(response));
     }
@@ -71,14 +76,16 @@ class ProfileApiClient {
     final contentType = image.path.toLowerCase().endsWith('.png')
         ? 'image/png'
         : 'image/jpeg';
-    final response = await http.post(
-      Uri.parse('$baseUrl/v1/me/avatar'),
-      headers: {
-        'Content-Type': contentType,
-        'Authorization': 'Bearer $token',
-      },
-      body: await image.readAsBytes(),
-    );
+    final response = await http
+        .post(
+          Uri.parse('$baseUrl/v1/me/avatar'),
+          headers: {
+            'Content-Type': contentType,
+            'Authorization': 'Bearer $token',
+          },
+          body: await image.readAsBytes(),
+        )
+        .timeout(apiRequestTimeout);
     if (response.statusCode != 200) {
       throw HttpException(_errorMessage(response));
     }

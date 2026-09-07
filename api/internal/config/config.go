@@ -32,6 +32,11 @@ type Config struct {
 	// avatar is small enough that going through this API's own origin is
 	// fine even in production, unlike the large-video case §3 is about.
 	LocalAvatarDir string
+	// LocalPlatformAudioDir is where the local platform-audio-storage stub
+	// (internal/audio.LocalPlatformAudioStorage) copies a seeded track's
+	// audio file to when cmd/seedaudio ingests it. Same "no non-local
+	// backend to switch to yet" stance as LocalAvatarDir.
+	LocalPlatformAudioDir string
 	// VideoStorageBackend selects where reel video actually lives: "local"
 	// (default — a disk-backed stand-in for Cloudflare Stream, so the
 	// upload/feed flow can be built and tested with no Cloudflare account)
@@ -102,11 +107,12 @@ func Load() (*Config, error) {
 		// signs up, since nothing else can grant that role before an admin
 		// already exists. Empty by default — the mechanism is a no-op until
 		// explicitly configured.
-		BootstrapAdminPhone: getenv("BOOTSTRAP_ADMIN_PHONE", ""),
-		PublicBaseURL:       getenv("PUBLIC_BASE_URL", "http://localhost:8080"),
-		LocalUploadDir:      getenv("LOCAL_UPLOAD_DIR", "./data/uploads"),
-		LocalAvatarDir:      getenv("LOCAL_AVATAR_DIR", "./data/avatars"),
-		VideoStorageBackend: getenv("VIDEO_STORAGE_BACKEND", "local"),
+		BootstrapAdminPhone:   getenv("BOOTSTRAP_ADMIN_PHONE", ""),
+		PublicBaseURL:         getenv("PUBLIC_BASE_URL", "http://localhost:8080"),
+		LocalUploadDir:        getenv("LOCAL_UPLOAD_DIR", "./data/uploads"),
+		LocalAvatarDir:        getenv("LOCAL_AVATAR_DIR", "./data/avatars"),
+		LocalPlatformAudioDir: getenv("LOCAL_PLATFORM_AUDIO_DIR", "./data/platform_audio"),
+		VideoStorageBackend:   getenv("VIDEO_STORAGE_BACKEND", "local"),
 
 		FFmpegPath: getenv("FFMPEG_PATH", "ffmpeg"),
 

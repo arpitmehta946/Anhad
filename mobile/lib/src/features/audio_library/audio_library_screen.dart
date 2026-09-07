@@ -231,21 +231,31 @@ class _TrackTile extends StatelessWidget {
         onPressed: onTogglePreview,
       ),
       title: Text(track.title ?? reelCategoryLabel(track.category)),
-      // Only the creator's own name is a tap target — opens their profile
-      // (docs/PRD.md's Sevak destination) — not the whole subtitle line.
+      // A platform track (docs/PRD.md §7.3 P0 — no creatorId at all, see
+      // AudioTrack's own doc) gets a quiet, non-tappable "Anhad" marker
+      // instead of a creator name — there's no profile to open, and it
+      // should read as clearly not-a-performer's-own-upload at a glance,
+      // the same "quiet, factual" badge language FRONTEND_GUIDELINES.md §10
+      // already uses for Verified Artist. Only a real creator's name is
+      // ever a tap target, opening their profile (docs/PRD.md's Sevak
+      // destination) — not the whole subtitle line.
       subtitle: Row(
         children: [
-          GestureDetector(
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => CreatorProfileScreen(userId: track.creatorId),
+          if (track.isPlatformTrack)
+            const _PlatformTrackBadge()
+          else
+            GestureDetector(
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) =>
+                      CreatorProfileScreen(userId: track.creatorId!),
+                ),
+              ),
+              child: Text(
+                track.creatorDisplayName ?? 'A fellow devotee',
+                style: const TextStyle(fontWeight: FontWeight.w600),
               ),
             ),
-            child: Text(
-              track.creatorDisplayName ?? 'A fellow devotee',
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-          ),
           Text(
             ' · used in ${track.reuseCount} reel${track.reuseCount == 1 ? '' : 's'}',
           ),
@@ -255,6 +265,33 @@ class _TrackTile extends StatelessWidget {
         onPressed: onUseSound,
         child: const Text('Use this sound'),
       ),
+    );
+  }
+}
+
+/// The quiet marker distinguishing a seeded platform track (a tanpura
+/// drone, a temple bell) from a creator's own upload in the library list —
+/// a small icon plus a label, the same restrained weight as the Verified
+/// Artist check mark (FRONTEND_GUIDELINES.md §10), not a loud "official"
+/// stamp.
+class _PlatformTrackBadge extends StatelessWidget {
+  const _PlatformTrackBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.spa, size: 14, color: AnhadColors.accentTulsi),
+        SizedBox(width: 4),
+        Text(
+          'Anhad',
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: AnhadColors.accentTulsi,
+          ),
+        ),
+      ],
     );
   }
 }

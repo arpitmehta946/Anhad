@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../../../config.dart';
 import '../../auth/data/not_authenticated_exception.dart';
 import 'moderation_models.dart';
 
@@ -20,17 +21,19 @@ class ModerationApiClient {
 
   Future<void> reportReel(String reelId, {required String reason, String? detail}) async {
     final token = await _requireToken();
-    final response = await http.post(
-      Uri.parse('$baseUrl/v1/reels/$reelId/reports'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-      body: jsonEncode({
-        'reason': reason,
-        if (detail != null && detail.isNotEmpty) 'detail': detail,
-      }),
-    );
+    final response = await http
+        .post(
+          Uri.parse('$baseUrl/v1/reels/$reelId/reports'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode({
+            'reason': reason,
+            if (detail != null && detail.isNotEmpty) 'detail': detail,
+          }),
+        )
+        .timeout(apiRequestTimeout);
     if (response.statusCode != 201) {
       throw HttpException(_errorMessage(response));
     }
@@ -38,10 +41,12 @@ class ModerationApiClient {
 
   Future<List<QueueItem>> listQueue() async {
     final token = await _requireToken();
-    final response = await http.get(
-      Uri.parse('$baseUrl/v1/moderation/reports'),
-      headers: {'Authorization': 'Bearer $token'},
-    );
+    final response = await http
+        .get(
+          Uri.parse('$baseUrl/v1/moderation/reports'),
+          headers: {'Authorization': 'Bearer $token'},
+        )
+        .timeout(apiRequestTimeout);
     if (response.statusCode != 200) {
       throw HttpException(_errorMessage(response));
     }
@@ -62,10 +67,12 @@ class ModerationApiClient {
 
   Future<List<AuditLogEntry>> listAuditLog() async {
     final token = await _requireToken();
-    final response = await http.get(
-      Uri.parse('$baseUrl/v1/moderation/audit-log'),
-      headers: {'Authorization': 'Bearer $token'},
-    );
+    final response = await http
+        .get(
+          Uri.parse('$baseUrl/v1/moderation/audit-log'),
+          headers: {'Authorization': 'Bearer $token'},
+        )
+        .timeout(apiRequestTimeout);
     if (response.statusCode != 200) {
       throw HttpException(_errorMessage(response));
     }
@@ -78,14 +85,17 @@ class ModerationApiClient {
 
   Future<void> _postAction(String url, String? reason) async {
     final token = await _requireToken();
-    final response = await http.post(
-      Uri.parse(url),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-      body: jsonEncode({if (reason != null && reason.isNotEmpty) 'reason': reason}),
-    );
+    final response = await http
+        .post(
+          Uri.parse(url),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode(
+              {if (reason != null && reason.isNotEmpty) 'reason': reason}),
+        )
+        .timeout(apiRequestTimeout);
     if (response.statusCode != 204) {
       throw HttpException(_errorMessage(response));
     }

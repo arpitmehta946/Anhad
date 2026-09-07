@@ -85,16 +85,24 @@ func recordAudioPlayHandler(logger *slog.Logger, audioSvc *audio.Service) http.H
 
 func trackJSON(t *audio.Track) map[string]any {
 	m := map[string]any{
-		"id":          t.ID,
-		"creator_id":  t.CreatorID,
-		"audio_url":   t.AudioURL,
-		"category":    t.Category,
-		"reuse_count": t.ReuseCount,
-		"play_count":  t.PlayCount,
-		"created_at":  t.CreatedAt,
+		"id":                t.ID,
+		"audio_url":         t.AudioURL,
+		"category":          t.Category,
+		"is_platform_track": t.IsPlatformTrack,
+		"reuse_count":       t.ReuseCount,
+		"play_count":        t.PlayCount,
+		"created_at":        t.CreatedAt,
 	}
+	// creator_id/creator_display_name are omitted entirely for a platform
+	// track (t.CreatorID is nil exactly when IsPlatformTrack is true) —
+	// the mobile client's own doc on AudioTrack.creatorId explains why that
+	// absence, not a fake "Anhad" id, is what marks a track as
+	// platform-owned there too.
 	if t.SourceReelID != nil {
 		m["source_reel_id"] = *t.SourceReelID
+	}
+	if t.CreatorID != nil {
+		m["creator_id"] = *t.CreatorID
 	}
 	if t.CreatorDisplayName != nil {
 		m["creator_display_name"] = *t.CreatorDisplayName

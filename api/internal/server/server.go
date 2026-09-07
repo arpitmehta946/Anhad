@@ -76,6 +76,15 @@ func New(cfg *config.Config, logger *slog.Logger, st *store.Store) (*http.Server
 	}
 	profileSvc := profile.NewService(st, avatarStorage)
 
+	// Only ever read by cmd/seedaudio (docs/PRD.md §7.3 P0) and the
+	// playback route below — no HTTP endpoint writes to it, since seeding
+	// is a developer running a CLI against vetted recordings, not
+	// something any client can trigger.
+	platformAudioStorage, err := audio.NewLocalPlatformAudioStorage(cfg.LocalPlatformAudioDir, cfg.PublicBaseURL)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("set up local platform audio storage: %w", err)
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthHandler(logger, st))
 	mux.HandleFunc("POST /v1/auth/otp/request", requestOTPHandler(logger, authSvc))
@@ -132,6 +141,11 @@ func New(cfg *config.Config, logger *slog.Logger, st *store.Store) (*http.Server
 	mux.Handle("PATCH /v1/me/profile", requireAuth(authSvc)(updateProfileHandler(logger, profileSvc)))
 	mux.Handle("POST /v1/me/avatar", requireAuth(authSvc)(uploadAvatarHandler(logger, profileSvc)))
 	mux.HandleFunc("GET /v1/profile/avatars/{id}/file", playLocalAvatarHandler(logger, avatarStorage))
+
+	// Seeded platform tracks (docs/PRD.md §7.3 P0) — playback only, same
+	// public-like-the-feed-itself reasoning as the rest of the audio
+	// library. Ingestion is cmd/seedaudio, not an HTTP route.
+	mux.HandleFunc("GET /v1/audio-tracks/platform/{filename}", playLocalPlatformAudioHandler(logger, platformAudioStorage))
 
 	if localStorage != nil {
 		mux.HandleFunc("PUT /v1/reels/uploads/{id}/file", uploadLocalVideoHandler(logger, localStorage))

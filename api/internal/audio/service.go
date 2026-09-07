@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/anhad/api/internal/store"
 )
 
@@ -27,20 +29,39 @@ import (
 // caller-facing error differs by context.
 var ErrTrackNotFound = errors.New("audio track not found")
 
-// Track is a row from audio_library (migrations 000003, 000013), joined
-// with its creator's display name so the library browser never needs a
-// second round trip — same shape decision as internal/reels.Reel.
-// SourceReelID is nil for a seeded/curated track (docs/PRD.md §7.3's
-// still-unbuilt other P0 half); every reel-derived track has one.
+// platformAudioCategories mirrors internal/reels.Categories exactly
+// (docs/PRD.md §4.1's fixed list, also enforced by the
+// audio_library_category_check constraint) — duplicated rather than
+// imported since internal/reels doesn't export its own list and importing
+// internal/reels into internal/audio for one constant would invert the
+// dependency the other direction already goes (reels reaches into
+// audio_library by raw SQL, not through this package's Go types).
+var platformAudioCategories = map[string]bool{
+	"bhajan": true, "mantra": true, "stuti": true, "chalisa": true,
+	"aarti": true, "kirtan": true, "sant_vani": true, "meditation_naad": true,
+}
+
+// Track is a row from audio_library (migrations 000003, 000013, 000016),
+// joined with its creator's display name so the library browser never
+// needs a second round trip — same shape decision as internal/reels.Reel.
+// SourceReelID is nil for a seeded/curated track; every reel-derived track
+// has one.
+//
+// CreatorID/CreatorDisplayName are nil exactly when IsPlatformTrack is
+// true (migration 000016's own CHECK constraint enforces that these two
+// facts never disagree) — a platform track (a tanpura drone, a temple
+// bell) isn't anyone's performance, so there's no artist row to join
+// against at all, not just an anonymous or unnamed one.
 type Track struct {
 	ID                 string
 	SourceReelID       *string
-	CreatorID          string
+	CreatorID          *string
 	CreatorDisplayName *string
 	AudioURL           string
 	Category           string
 	Title              *string
 	IsPublic           bool
+	IsPlatformTrack    bool
 	ReuseCount         int64
 	PlayCount          int64
 	CreatedAt          time.Time
@@ -117,9 +138,10 @@ func (s *Service) ListLibrary(ctx context.Context, category, creatorID *string, 
 
 	const query = `
 		SELECT t.id, t.source_reel_id, t.artist_id, u.display_name, t.r2_url,
-		       t.category, t.title, t.is_public, t.reuse_count, t.play_count, t.created_at
+		       t.category, t.title, t.is_public, t.is_platform_track,
+		       t.reuse_count, t.play_count, t.created_at
 		FROM audio_library t
-		JOIN users u ON u.id = t.artist_id
+		LEFT JOIN users u ON u.id = t.artist_id
 		WHERE t.is_public
 		  AND ($1::text IS NULL OR t.category = $1)
 		  AND ($2::timestamptz IS NULL OR t.created_at < $2)
@@ -138,7 +160,8 @@ func (s *Service) ListLibrary(ctx context.Context, category, creatorID *string, 
 		var t Track
 		if err := rows.Scan(
 			&t.ID, &t.SourceReelID, &t.CreatorID, &t.CreatorDisplayName, &t.AudioURL,
-			&t.Category, &t.Title, &t.IsPublic, &t.ReuseCount, &t.PlayCount, &t.CreatedAt,
+			&t.Category, &t.Title, &t.IsPublic, &t.IsPlatformTrack,
+			&t.ReuseCount, &t.PlayCount, &t.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan track: %w", err)
 		}
@@ -165,4 +188,63 @@ func (s *Service) RecordPlay(ctx context.Context, trackID string) error {
 		return ErrTrackNotFound
 	}
 	return nil
+}
+
+// ErrInvalidCategory means SeedPlatformTrack was asked to insert a category
+// outside docs/PRD.md §4.1's fixed list — checked here too, not just left
+// to the audio_library_category_check constraint, so cmd/seedaudio can
+// report a clear per-track error against its manifest rather than an
+// opaque Postgres constraint-violation message.
+var ErrInvalidCategory = errors.New("category must be one of: bhajan, mantra, stuti, chalisa, aarti, kirtan, sant_vani, meditation_naad")
+
+// SeedPlatformTrack inserts or updates one platform-owned track (a tanpura
+// drone, a temple bell — docs/PRD.md §7.3 P0, IMPLEMENTATION_PLAN.md
+// Phase 3) — always public, always bypassing the moderation pipeline
+// entirely (there's no reel, and nothing to moderate: cmd/seedaudio is the
+// only caller, run by a developer against a source recording they
+// themselves vetted), and always with no artist row (see Track's own doc
+// on why NULL beats a fake "Anhad" user).
+//
+// Idempotent by (is_platform_track, title): re-running cmd/seedaudio
+// against an updated manifest — a re-recorded tanpura drone, a corrected
+// title — updates the existing row's audio/category/deity/raga rather than
+// accumulating a duplicate. title doesn't have a database-level UNIQUE
+// constraint (a reel-derived track's own title is free-text, taken from
+// its caption, and two reels can share a caption), so this checks first
+// rather than using ON CONFLICT — acceptable for a low-volume admin tool
+// invoked sequentially by one developer, not a concurrent-write path.
+func (s *Service) SeedPlatformTrack(ctx context.Context, category, title, audioURL string, deity, raga *string) (id string, created bool, err error) {
+	if !platformAudioCategories[category] {
+		return "", false, ErrInvalidCategory
+	}
+
+	err = s.store.PG.QueryRow(ctx,
+		`SELECT id FROM audio_library WHERE is_platform_track AND title = $1`, title,
+	).Scan(&id)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		err = s.store.PG.QueryRow(ctx,
+			`INSERT INTO audio_library
+			    (artist_id, r2_url, category, title, deity, raga, is_public, is_platform_track)
+			 VALUES (NULL, $1, $2, $3, $4, $5, true, true)
+			 RETURNING id`,
+			audioURL, category, title, deity, raga,
+		).Scan(&id)
+		if err != nil {
+			return "", false, fmt.Errorf("insert platform track: %w", err)
+		}
+		return id, true, nil
+	case err != nil:
+		return "", false, fmt.Errorf("check existing platform track: %w", err)
+	default:
+		_, err = s.store.PG.Exec(ctx,
+			`UPDATE audio_library SET r2_url = $1, category = $2, deity = $3, raga = $4, is_public = true
+			 WHERE id = $5`,
+			audioURL, category, deity, raga, id,
+		)
+		if err != nil {
+			return "", false, fmt.Errorf("update platform track: %w", err)
+		}
+		return id, false, nil
+	}
 }

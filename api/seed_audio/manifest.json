@@ -1,0 +1,43 @@
+[
+  {
+    "file": "tanpura_c_sharp.mp3",
+    "title": "Tanpura Drone — C Sharp"
+  },
+  {
+    "file": "tanpura_g.mp3",
+    "title": "Tanpura Drone — G"
+  },
+  {
+    "file": "temple_bell.mp3",
+    "title": "Temple Bell"
+  },
+  {
+    "file": "temple_bell_conch.mp3",
+    "title": "Temple Bell with Conch"
+  },
+  {
+    "file": "harmonium_sa_re_ga_ma.mp3",
+    "title": "Harmonium Scale — Sa Re Ga Ma"
+  },
+  {
+    "file": "harmonium_bhairav.mp3",
+    "title": "Harmonium Scale — Raga Bhairav",
+    "raga": "Bhairav"
+  },
+  {
+    "file": "vedic_chant_om.mp3",
+    "title": "Vedic Chant Loop — Om"
+  },
+  {
+    "file": "vedic_chant_shanti.mp3",
+    "title": "Vedic Chant Loop — Shanti Mantra"
+  },
+  {
+    "file": "ambient_temple_courtyard.mp3",
+    "title": "Ambient Soundscape — Temple Courtyard"
+  },
+  {
+    "file": "ambient_river_evening_aarti.mp3",
+    "title": "Ambient Soundscape — Riverside Evening Aarti"
+  }
+]
