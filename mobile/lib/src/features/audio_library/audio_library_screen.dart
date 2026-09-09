@@ -241,23 +241,38 @@ class _TrackTile extends StatelessWidget {
       // destination) — not the whole subtitle line.
       subtitle: Row(
         children: [
-          if (track.isPlatformTrack)
-            const _PlatformTrackBadge()
-          else
-            GestureDetector(
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) =>
-                      CreatorProfileScreen(userId: track.creatorId!),
-                ),
-              ),
-              child: Text(
-                track.creatorDisplayName ?? 'A fellow devotee',
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
+          // Both sides Flexible, not just one: a bare (non-Flexible) count
+          // Text is laid out first at its full natural width and eats
+          // whatever the row has, leaving the Flexible badge/name to be
+          // squeezed toward zero rather than sharing the space — that's
+          // what produced an icon with no "Anhad" label next to it before
+          // this. flex:3/2 gives the badge/name first claim (it's the part
+          // worth reading) while still letting the count shrink instead of
+          // overflowing.
+          Flexible(
+            flex: 3,
+            child: track.isPlatformTrack
+                ? const _PlatformTrackBadge()
+                : GestureDetector(
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            CreatorProfileScreen(userId: track.creatorId!),
+                      ),
+                    ),
+                    child: Text(
+                      track.creatorDisplayName ?? 'A fellow devotee',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+          ),
+          Flexible(
+            flex: 2,
+            child: Text(
+              ' · used in ${track.reuseCount} reel${track.reuseCount == 1 ? '' : 's'}',
+              overflow: TextOverflow.ellipsis,
             ),
-          Text(
-            ' · used in ${track.reuseCount} reel${track.reuseCount == 1 ? '' : 's'}',
           ),
         ],
       ),
@@ -284,11 +299,14 @@ class _PlatformTrackBadge extends StatelessWidget {
       children: [
         Icon(Icons.spa, size: 14, color: AnhadColors.accentTulsi),
         SizedBox(width: 4),
-        Text(
-          'Anhad',
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            color: AnhadColors.accentTulsi,
+        Flexible(
+          child: Text(
+            'Anhad',
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: AnhadColors.accentTulsi,
+            ),
           ),
         ),
       ],

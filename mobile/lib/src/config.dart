@@ -1,10 +1,20 @@
 /// Overridable at run time: `flutter run --dart-define=API_BASE_URL=...`.
-/// Defaults to the Android-emulator loopback alias for the local API
-/// (docs/TECH_STACK.md §2, §4) — a physical device over USB instead needs
-/// `adb reverse tcp:8080 tcp:8080` plus `API_BASE_URL=http://localhost:8080`.
+/// Defaults to the dev machine's WiFi LAN IP (also whitelisted in
+/// android/app/src/debug/res/xml/network_security_config.xml) so a physical
+/// device reaches the API directly over WiFi — no `adb reverse` tunnel,
+/// which silently goes dead on reconnect/reboot/reinstall while
+/// `adb reverse --list` keeps reporting it as registered (docs/GAPS.md,
+/// "Engineering hygiene"). This project only ever runs on a physical
+/// device, never the emulator (see CLAUDE.md) — if that ever changes, the
+/// emulator needs `--dart-define=API_BASE_URL=http://10.0.2.2:8080`
+/// instead. DHCP-assigned — if it changes, `ipconfig` on Windows shows the
+/// current one under the WiFi adapter; update it here, in
+/// network_security_config.xml, and in api/.env's PUBLIC_BASE_URL (which
+/// must match — it's what the API stamps into local-storage playback URLs
+/// returned to this client).
 const apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'http://10.0.2.2:8080',
+  defaultValue: 'http://192.168.1.3:8080',
 );
 
 /// Applied to every plain JSON API call via `.timeout(apiRequestTimeout)`
