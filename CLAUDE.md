@@ -114,3 +114,36 @@ generated/machine-local build output is gitignored.
 - Don't add red pulsing badges, infinite autoplay, streak-loss guilt
   language, or fake urgency on upsells — these are explicit anti-patterns
   (`docs/FRONTEND_GUIDELINES.md` §8).
+
+## On-device automation (adb) safety rules
+
+The dev phone is a real, shared device — the person testing alongside you
+uses it for their own apps too, and it isn't always Anhad in the
+foreground when a command runs. On 2026-09-09, a blind `adb shell input`
+sequence landed in a WhatsApp conversation instead of Anhad and typed text
+into a real, in-progress message to another person. It wasn't sent, but it
+could have been. These rules exist because of that incident — follow them
+for every adb-driven interaction with this phone, not just when things
+seem to be going wrong:
+
+- **Before any input, confirm Anhad is actually in the foreground.** Run
+  `adb shell dumpsys window | grep mCurrentFocus` and check it names
+  `com.anhad.anhad` before tapping or typing anything. If it doesn't, stop
+  and tell the user rather than proceeding — don't assume a previous
+  screenshot is still current.
+- **Re-check foreground after anything that could hand off to another
+  app** — the gallery/photo picker, a share sheet, a permission dialog, an
+  incoming call or notification the OS brought to front. Never assume
+  you're still looking at Anhad just because you were a moment ago.
+- **Never type free text unless the user has explicitly asked for it in
+  the current session.** Typing is what caused the incident — a stray tap
+  is recoverable (nothing changes state), but characters typed into
+  someone else's conversation are not something you can safely undo by
+  guessing at more keystrokes.
+- **Never tap send, submit, post, or confirm in any app other than
+  Anhad.** If a flow requires leaving Anhad (e.g. a system share sheet or
+  picker) and something needs to be actually submitted there, stop and
+  ask rather than completing it yourself.
+- **If you lose track of what's on screen, stop and screenshot before
+  doing anything else.** Don't chain further taps on an assumption about
+  current state — verify first.

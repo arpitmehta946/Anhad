@@ -39,7 +39,7 @@ func New(cfg *config.Config, logger *slog.Logger, st *store.Store) (*http.Server
 	var localStorage *reels.LocalVideoStorage
 	switch cfg.VideoStorageBackend {
 	case "local":
-		local, err := reels.NewLocalVideoStorage(cfg.LocalUploadDir, cfg.PublicBaseURL)
+		local, err := reels.NewLocalVideoStorage(cfg.LocalUploadDir, cfg.PublicBaseURL, cfg.FFmpegPath)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("set up local video storage: %w", err)
 		}

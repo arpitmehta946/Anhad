@@ -25,6 +25,10 @@ func uploadLocalVideoHandler(logger *slog.Logger, storage *reels.LocalVideoStora
 			return
 		}
 		if err := storage.Save(videoID, r.Body); err != nil {
+			if errors.Is(err, reels.ErrNotAVideo) {
+				writeError(w, http.StatusUnprocessableEntity, "uploaded file is not a valid video")
+				return
+			}
 			logger.Error("local video upload failed", "video_id", videoID, "error", err)
 			writeError(w, http.StatusInternalServerError, "failed to store video")
 			return
