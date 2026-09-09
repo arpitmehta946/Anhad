@@ -14,7 +14,7 @@
 /// returned to this client).
 const apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'http://192.168.1.3:8080',
+  defaultValue: 'http://192.168.1.9:8080',
 );
 
 /// Applied to every plain JSON API call via `.timeout(apiRequestTimeout)`
@@ -35,3 +35,16 @@ const apiRequestTimeout = Duration(seconds: 20);
 /// (api/internal/reels.UploadTarget.ExpiresAt) — no point timing the
 /// upload out any sooner than that URL itself would already reject it.
 const apiUploadTimeout = Duration(minutes: 5);
+
+/// Applied to VideoPlayerController.initialize() in reel_page.dart — same
+/// motivation as [apiRequestTimeout]: initialize() has no timeout of its
+/// own, so a dead or unreachable host (a stale LAN IP after a DHCP
+/// re-lease, same failure mode this file's own history has already hit
+/// once — or a real user's dropped connection) left the feed spinning a
+/// bare CircularProgressIndicator forever instead of surfacing a
+/// "Couldn't load this reel" retry state. Longer than
+/// [apiRequestTimeout]: a real video load has to open a connection and
+/// buffer enough to know its first frame/duration, not just round-trip a
+/// small JSON body, so 20s would clip a genuinely slow-but-working
+/// connection too eagerly.
+const videoLoadTimeout = Duration(seconds: 30);

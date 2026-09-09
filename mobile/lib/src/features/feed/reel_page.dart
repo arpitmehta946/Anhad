@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../config.dart';
 import '../../theme/anhad_icons.dart';
 import '../../theme/colors.dart';
 import '../auth/auth_controller.dart';
@@ -57,6 +60,14 @@ class _ReelPageState extends State<ReelPage> {
   // players, started/stopped/muted together by this state class.
   VideoPlayerController? _sourceController;
   bool _ready = false;
+  // Set only when initialize() times out or throws — distinct from the
+  // ordinary not-yet-ready state so build() can tell "still loading" from
+  // "gave up" and show a retry instead of spinning forever. See
+  // videoLoadTimeout's own doc (config.dart) for why this exists at all:
+  // initialize() has no timeout of its own, and this screen had no error
+  // path either, so a dead host (the DHCP-drift bug that motivated this
+  // fix) just spun a CircularProgressIndicator with no way out.
+  bool _loadFailed = false;
 
   @override
   void initState() {
@@ -65,6 +76,7 @@ class _ReelPageState extends State<ReelPage> {
   }
 
   void _startController() {
+    _loadFailed = false;
     final controller =
         VideoPlayerController.networkUrl(Uri.parse(widget.reel.videoUrl))
           ..setLooping(true)
@@ -83,11 +95,20 @@ class _ReelPageState extends State<ReelPage> {
     Future.wait([
       controller.initialize(),
       if (sourceController != null) sourceController.initialize(),
-    ]).then((_) {
+    ]).timeout(videoLoadTimeout).then((_) {
       if (!mounted || _controller != controller) return;
       setState(() => _ready = true);
       controller.play();
       sourceController?.play();
+    }).catchError((_) {
+      if (!mounted || _controller != controller) return;
+      controller.dispose();
+      sourceController?.dispose();
+      setState(() {
+        _controller = null;
+        _sourceController = null;
+        _loadFailed = true;
+      });
     });
   }
 
@@ -97,6 +118,7 @@ class _ReelPageState extends State<ReelPage> {
     _controller = null;
     _sourceController = null;
     _ready = false;
+    _loadFailed = false;
     controller?.dispose();
     sourceController?.dispose();
   }
@@ -193,6 +215,27 @@ class _ReelPageState extends State<ReelPage> {
                       child: VideoPlayer(controller),
                     ),
                   )
+          else if (_loadFailed)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      "Couldn't load this reel. Check your connection and try again.",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                    const SizedBox(height: 16),
+                    OutlinedButton(
+                      onPressed: () => setState(_startController),
+                      child: const Text('Try again'),
+                    ),
+                  ],
+                ),
+              ),
+            )
           else
             const Center(
               child: CircularProgressIndicator(color: AnhadColors.accentDiya),

@@ -19,6 +19,6 @@
              instead of USB + adb reverse. DHCP-assigned — update this (and
              API_BASE_URL) if it changes; ipconfig on Windows shows the
              current one under the WiFi adapter. -->
-        <domain includeSubdomains="false">192.168.1.3</domain>
+        <domain includeSubdomains="false">192.168.1.9</domain>
     </domain-config>
 </network-security-config>
