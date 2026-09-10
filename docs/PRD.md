@@ -2,8 +2,8 @@
 
 **Product (working codename):** Anhad
 **Tagline:** A sanctuary for bhajans, mantras & stutis.
-**Version:** 0.1 (Concept → Pre-MVP)
-**Date:** August 20, 2026
+**Version:** 0.2 (Concept → Pre-MVP)
+**Date:** August 20, 2026 (monetization model revised September 10, 2026 — see §10.6)
 **Status:** Draft for founder review — see [Open Decisions](#12-open-decisions) before build starts
 
 > **On the name.** "Anhad" comes from *anhad naad* — the "unstruck sound," a concept shared across Nada Yoga, Sant Kabir's poetry, and Sikh Gurbani, describing the divine vibration heard within rather than produced by striking an instrument. It's used here as a working codename, not a final brand. Do **not** name the product "Bhakti" or any Bhakti-prefixed variant — see [§4.3](#43-naming-collision-warning).
@@ -12,7 +12,7 @@
 
 ## 1. Executive Summary
 
-Anhad is a short-form vertical video platform restricted to one content category: **bhajans, mantras, stutis, chalisas, aartis, and devotional discourse.** No filmi songs, no political content, no general entertainment. Viewers browse for free; creators pass a one-time verification step; original singers earn from an audio-reuse royalty pool instead of direct tipping; and a screen-off japa (chanting) counter with streaks gives the app a daily-use habit loop that generic social media doesn't have.
+Anhad is a short-form vertical video platform restricted to one content category: **bhajans, mantras, stutis, chalisas, aartis, and devotional discourse.** No filmi songs, no political content, no general entertainment. Everything spiritual — watching, chanting, counting, taking a sankalp, streaks — is free forever, everywhere; creators pass a one-time verification step; direct viewer-to-creator tipping is deliberately excluded (fraud risk — see [§10.6](#106-why-the-model-changed-september-10-2026)), with creator payouts planned as a pooled share of platform revenue once the platform itself is earning enough to distribute one ([§10.4](#104-creator-payouts-deferred)); and a screen-off japa (chanting) counter with streaks gives the app a daily-use habit loop that generic social media doesn't have.
 
 The core bet: mainstream platforms already prove the *demand* for this content (a single YouTube devotional channel has more subscribers than most countries have people), but they don't protect the *experience* — a bhajan plays next to a prank video next to political outrage. Anhad's product is the protection, not the content itself.
 
@@ -51,7 +51,9 @@ None of this is a content-supply problem — devotional content is enormous and 
 | India creator economy (all categories) | Influences $350B in consumer spending today, projected to exceed $1 trillion by 2030 (BCG, 2025) | — |
 | India influencer marketing spend | Crossed ₹2,800 crore in 2024, projected to exceed ₹4,000 crore in 2026 | ~25% CAGR |
 
-Two things matter more than the topline numbers: **paid in-app purchase is already the dominant monetization model** in spiritual wellness apps globally (~61–63% revenue share), which supports the Seva Pass subscription approach over an ads model — and the Indian government announced a **$1 billion creator economy fund** in 2025, signaling policy tailwind, not headwind, for this category.
+Two things matter more than the topline numbers: **paid in-app purchase is already the dominant monetization model** in spiritual wellness apps globally (~61–63% revenue share), which supports a Seva Pass paid tier over an ads model — and the Indian government announced a **$1 billion creator economy fund** in 2025, signaling policy tailwind, not headwind, for this category.
+
+**But that global IAP figure does not hold for India specifically, and it changes how V1 is priced.** Sri Mandir — the closest direct comparable, a devotional app with roughly 40 million downloads and 3.5 million MAU — has generated **under $100,000 in in-app purchases across five years of operation.** Indian devotional-app users install and use at massive scale but do not, in practice, pay for spiritual content subscriptions domestically. Diaspora users are a different economic segment entirely: reported diaspora ARPU on comparable apps runs around **₹7,000 vs. ₹600–800 domestically** — roughly a 9–10x gap. Full reasoning, and what it changed in the monetization model, is in [§10.6](#106-why-the-model-changed-september-10-2026).
 
 ### 3.3 Competitive landscape
 
@@ -170,7 +172,7 @@ There is a real market position in this: *"the safest place for your child to sh
 
 ## 5. Target Users
 
-**Meera, 34 — the Seeker (viewer).** Urban professional, plays a bhajan or Hanuman Chalisa while getting ready in the morning. Currently uses YouTube/Instagram and is mildly annoyed every time the algorithm interrupts her routine with something unrelated. Won't pay to *join*, might pay ₹79/month for background play and offline downloads once she's used it daily for a few weeks. This persona also plausibly includes diaspora users (US/UK/Gulf) for whom the app is a connection to home.
+**Meera, 34 — the Seeker (viewer).** Urban professional, plays a bhajan or Hanuman Chalisa while getting ready in the morning. Currently uses YouTube/Instagram and is mildly annoyed every time the algorithm interrupts her routine with something unrelated. Won't pay to *join*, might pay the one-time ₹299 Seva Pass for background play and offline downloads once she's used it daily for a few weeks — see [§10.1](#101-revenue-streams-v1). This persona also plausibly includes diaspora users (US/UK/Gulf) for whom the app is a connection to home, and who are the ones actually expected to pay the recurring ~$9/month tier.
 
 **Radha, 27 — the Artist (verified creator).** Classically trained or self-taught bhajan singer, already posts on Instagram/YouTube and is frustrated that dance trends and comedy reels outrank her devotional content in the algorithm. Wants an audience that specifically came for *this*. Will tolerate a one-time verification fee if it visibly buys her real reach and a legitimate income path — she will not tolerate a recurring toll.
 
@@ -231,10 +233,12 @@ Priority key: **P0** = required for MVP launch · **P1** = fast-follow within ~3
 
 ### 7.6 Wallet, payouts & monetization
 See full detail in [§10](#10-monetization-model).
-- **P1** — Artist wallet with UPI payout via RazorpayX/Cashfree, ₹500 minimum withdrawal threshold, PAN collection + penny-drop verification.
-- **P1** — Seva Pass subscription (₹79/month or ₹499/year): background/lock-screen playback, offline downloads, lossless audio, ad-free.
-- **P1** — Monthly audio-reuse royalty batch job (detail in [§10.4](#104-royalty-mechanics)).
-- **P2** — Diya token gifting, restricted to verified original artists only (not curators) — see the design decision in [§10.2](#102-design-decision-who-gets-direct-monetization).
+- **P1** — Seva Pass, India: **₹299 one-time purchase**, sold at the sankalp moment — screen-off counting, offline audio, chant history, ambient pacing tracks. Never recurring domestically (see [§10.6](#106-why-the-model-changed-september-10-2026) for why).
+- **P1** — Seva Pass, diaspora: **~$9/month, recurring**, priced by detected location — the same convenience-feature bundle, subscription pricing.
+- **P2** — Artist payout wallet with UPI payout via RazorpayX/Cashfree, ₹500 minimum withdrawal threshold, PAN collection + penny-drop verification — **built when the royalty pool activates, not at launch** (see [§10.4](#104-creator-payouts-deferred)).
+- **P2** — Monthly audio-reuse royalty batch job (detail in [§10.4](#104-creator-payouts-deferred)) — deferred until the platform itself earns revenue worth pooling.
+- **Removed** — Diya token gifting (direct viewer-to-creator tipping) is not being built at any priority. Removed entirely September 10, 2026 as a fraud vector (self-tipping via a second account) — see [§10.6](#106-why-the-model-changed-september-10-2026).
+- **P2 (future line, not built)** — Festival passes (Navratri, Shivratri, etc.) — see [§10.1](#101-revenue-streams-v1).
 - **P2** — Creator Studio Pro (₹149/month): longer clip limits (up to 5 min for Katha/discourse), priority audio-library placement, detailed analytics.
 
 ### 7.7 Notifications
@@ -272,7 +276,7 @@ None of the above requires anyone to judge whether a person is spiritually legit
 
 **Financial solicitation and scams.** Indian devotional content carries a persistent problem of donation requests, fake temple fundraising, paid-puja touting, and astrologers farming devotees. This is where actual financial harm to users occurs, and it is the most under-addressed risk in this entire document. The rule must be flat and unambiguous, because anything discretionary here becomes a negotiation:
 
-> **No donation requests, no payment handles (UPI IDs, QR codes, bank details), no external links** — in videos, captions, audio, profile bios, or Satsang comments. All money moves through Diya tokens ([§10.1](#101-the-three-sustainable-revenue-streams-v1)) or it does not move at all.
+> **No donation requests, no payment handles (UPI IDs, QR codes, bank details), no external links** — in videos, captions, audio, profile bios, or Satsang comments. Direct viewer-to-creator money movement of any kind is not a feature of this platform ([§10.1](#101-revenue-streams-v1)) — it does not exist to be routed through, so any instance of it is a violation, not a gray area.
 
 **Miracle and medical claims.** "Chant this 108 times to cure your illness" is common, causes real harm, and creates real legal exposure. Devotional practice may be described as bringing peace, focus, or comfort. It may **never** be presented as curing disease, treating a condition, or substituting for medical care.
 
@@ -369,30 +373,36 @@ Phone-OTP passwordless auth; JWT with short-lived access tokens + refresh rotati
 
 ## 10. Monetization Model
 
-### 10.1 The three sustainable revenue streams (V1)
+**Overhauled September 10, 2026** based on same-day market research — see [§10.6](#106-why-the-model-changed-september-10-2026) for the reasoning behind every change in this section, kept here so it isn't re-litigated later.
 
-1. **Seva Pass subscription** (consumer, recurring) — ₹79/month or ₹499/year for background/lock-screen playback, offline downloads, lossless audio, no interstitials.
-2. **One-time creator verification stake** — ₹99, anti-spam friction, converts to wallet credit after 3 clean posts (never a recurring charge — see [§7.5](#75-creator-onboarding--verification)).
-3. **Platform cut on Diya token purchases** — 15% retained when a viewer sends a digital offering to a *verified original artist* (see [§10.2](#102-design-decision-who-gets-direct-monetization) for why this is restricted).
+### 10.1 Revenue streams (V1)
 
-Creator payouts are never a fixed liability — see [§10.4](#104-royalty-mechanics). If the platform earns ₹0 in a month, it owes ₹0 in royalties that month. This single rule is what keeps the model solvent at any scale.
+1. **Seva Pass — India: ₹299 one-time purchase.** Unlocks japa convenience features only — screen-off counting, offline audio, chant history, ambient pacing tracks. Sold at the sankalp moment ([§10.3](#103-the-streak-reward-must-be-temporary)), never at signup and never as a paywall on anything spiritual. **One-time, not recurring** — domestic willingness to pay for a recurring spiritual-content subscription is not there ([§10.6](#106-why-the-model-changed-september-10-2026)).
+2. **Seva Pass — diaspora: ~$9/month, recurring, priced by detected location.** Same convenience-feature bundle as above, subscription pricing. This — not the domestic one-time purchase — is V1's primary recurring-revenue line.
+3. **One-time creator verification stake** — ₹99, anti-spam friction, converts to wallet credit after 3 clean posts (never a recurring charge — see [§7.5](#75-creator-onboarding--verification)). Unaffected by this overhaul.
+4. **Festival passes** (Navratri, Shivratri, etc.) — logged here as a future revenue line for both markets. Not built in V1; see [`GAPS.md`](./GAPS.md).
+
+**Direct viewer-to-creator tipping (the earlier "Diya token" gifting concept) is removed entirely, not deferred** — see [§10.6](#106-why-the-model-changed-september-10-2026). There is no platform-cut-on-tipping revenue line in this model.
+
+Creator payouts are never a fixed liability and are not part of the revenue model above — they're a separate, deferred mechanic; see [§10.4](#104-creator-payouts-deferred).
 
 ### 10.2 Design decision: who gets direct monetization
 
-**The curator role is retired.** Earlier drafts split creators into *original artists* and *curators* (people clipping and subtitling a guru's discourse), and restricted Diya token gifting to the former, because paying personal dakshina to someone for relaying another person's words is ethically and legally murky.
+**The curator role is retired.** Earlier drafts split creators into *original artists* and *curators* (people clipping and subtitling a guru's discourse), and would have restricted any direct payment to the former, because paying personal dakshina to someone for relaying another person's words is ethically and legally murky.
 
 The rights rule in [§4.2.1](#421-the-rights-rule--one-line-that-solves-two-problems) dissolves that problem rather than managing it: if a creator may only upload a recording they made themselves, **every creator is an original performer by definition.** There is no curator tier left to restrict.
 
 Consequences for the data model and payouts:
 - `creator_type` (`original | curator`) can be **dropped** from the schema in [`GAPS.md`](./GAPS.md) — it no longer distinguishes anything.
-- Diya token gifting is available on **all** verified-creator content, with no eligibility test.
-- The Community Seva Fund becomes **one pool**, not the original-artists/curators split described in earlier drafts.
+- The pooled royalty fund ([§10.4](#104-creator-payouts-deferred)), whenever it activates, is **one pool**, not the original-artists/curators split described in earlier drafts.
 
 This removes a whole tier of eligibility logic, an enum, and a category of judgement calls from moderation.
 
+*Note: this section was originally written to justify Diya-token eligibility. Direct tipping no longer exists ([§10.1](#101-revenue-streams-v1)), so that specific question is moot — but the curator-role retirement and its schema/moderation consequences stand on their own regardless, which is why this section is kept rather than deleted.*
+
 ### 10.3 The streak reward must be temporary
 
-Giving a **permanent** free Seva Pass for completing a sankalp destroys the subscription funnel — once earned, that user has no further reason to ever pay. The reward must be a **7-day trial**, functioning as a zero-cost customer-acquisition mechanism: the user experiences background playback and offline audio, the trial expires, and they choose between resubscribing, taking another sankalp, or reverting to the free tier. All three outcomes are fine for the platform; a permanent giveaway is the only bad outcome.
+Giving a **permanent** free Seva Pass for completing a sankalp destroys the funnel — once earned, that user has no further reason to ever pay. The reward must be a **7-day trial** of the Seva Pass convenience-feature bundle ([§10.1](#101-revenue-streams-v1)), functioning as a zero-cost customer-acquisition mechanism: the user experiences the convenience features, the trial expires, and they choose between buying/subscribing to Seva Pass, taking another sankalp, or reverting to the free tier. All three outcomes are fine for the platform; a permanent giveaway is the only bad outcome.
 
 **Reward tiers by sankalp length** (`ONBOARDING.md` §2 offers 11/21/41-day vows — 41 replaces the earlier 36-day option floated in an early draft, since the 40/41-day mandala and Chalisa traditions are more established lengths than 36):
 
@@ -410,16 +420,35 @@ Giving a **permanent** free Seva Pass for completing a sankalp destroys the subs
 
 Streak-based rewards should never gate *spiritual* progress (badges, milestones, leaderboard rank) behind payment — only *convenience* features (lock-screen playback, offline downloads, ambient pacing tracks) are ever paywalled. This preserves the "you cannot buy devotion" principle the founder conversation correctly insisted on.
 
-### 10.4 Royalty mechanics
+### 10.4 Creator payouts (deferred)
 
-- Royalty pool = **30% of net platform revenue**, calculated and distributed monthly — never a fixed per-play rate, which is what would create unbounded liability.
+**Creator payouts are deferred, not promised, as of September 10, 2026.** Verifying and posting on Anhad does not currently come with a payout commitment. The pooled model below remains the intended long-term design — documented here as the plan the platform is built toward, not as a live mechanic — but it does not activate at launch:
+
+- **Activation trigger:** the pool turns on once the feed itself is generating revenue at a level worth dividing, not on a fixed launch date or calendar milestone. Until then the pool is ₹0 by construction, and no payout obligation exists to anyone.
+- Royalty pool, once active = **30% of net platform revenue**, calculated and distributed monthly — never a fixed per-play rate, which is what would create unbounded liability.
+- "Net platform revenue" for this calculation means actual money the app has taken in (Seva Pass, domestic and diaspora, net of payment-processor/App Store/Play Store fees) — not attention, not projected value, not downloads.
 - A "qualified play" = a view where the audio played for ≥5–7 seconds (filters out accidental swipes and bot clicks).
-- Payout formula: `Artist's share = (Artist's qualified plays ÷ Total qualified plays platform-wide) × Monthly pool`
+- Payout formula, once active: `Artist's share = (Artist's qualified plays ÷ Total qualified plays platform-wide) × Monthly pool`
 - Paid via RazorpayX or Cashfree to a UPI ID verified with a penny-drop check; ₹500 minimum withdrawal threshold to avoid gateway fees eating small payouts.
+
+**Launch messaging to creators must say this plainly.** What a verified creator gets at launch is protected placement (no filmi/political content next to their bhajan), audio-reuse attribution and a visible reuse count, and a credible claim on a share of future revenue if and when the platform earns enough to distribute — not a live income stream. Promising payouts the ₹0 pool can't fund is worse than being upfront that they're not here yet.
 
 ### 10.5 Explicitly out of scope for V1
 
-Per direct founder instruction, **brand sponsorships and product affiliate commerce are deliberately excluded from V1** — not because they're bad ideas, but because they add commercial-relationship complexity (advertiser vetting, FTC/ASCI-equivalent disclosure rules) before the core product and moderation pipeline are proven. Revisit post-launch, not before.
+- Per direct founder instruction, **brand sponsorships and product affiliate commerce are deliberately excluded from V1** — not because they're bad ideas, but because they add commercial-relationship complexity (advertiser vetting, FTC/ASCI-equivalent disclosure rules) before the core product and moderation pipeline are proven. Revisit post-launch, not before.
+- **Direct tipping / "Diya tokens" — removed entirely, not deferred**, effective September 10, 2026 ([§10.6](#106-why-the-model-changed-september-10-2026)). Direct viewer-to-creator payment invites a fraud pattern pooled/plays-based payout isn't exposed to the same way — self-tipping (or ring-tipping among a small group of accounts) to fake a fanbase or launder money, with no reliable low-cost way to detect it before launch. This is a permanent V1-and-beyond design position, not a phased-rollout item like the sponsorships above.
+
+### 10.6 Why the model changed (September 10, 2026)
+
+Same-day market research forced a rewrite of the entire model above. Recorded here in full so the reasoning isn't rediscovered — or re-argued from scratch — later:
+
+- **Sri Mandir is the closest real comparable, and its numbers are decisive.** ~40 million downloads, ~3.5 million MAU, and **under $100,000 in in-app purchases across five years.** That is not a rounding error or a "hasn't found the right paywall yet" story — at that scale, five years is long enough to prove the domestic market genuinely does not buy spiritual-content subscriptions, no matter how well-executed the app. Any V1 plan that assumed Indian users would subscribe the way global spiritual-wellness IAP averages (§3.2) suggest was built on the wrong comparable.
+- **Diaspora economics are a different market, not a discount tier of the same one.** Reported ARPU on comparable apps runs ~₹7,000 (diaspora) vs. ~₹600–800 (domestic) — a 9–10x gap. Pricing both markets off one subscription SKU with a currency conversion would either overprice India (killing adoption) or underprice the diaspora (leaving real revenue on the table). Splitting them — a low-friction one-time purchase domestically, a real recurring subscription for diaspora — matches each market's actual behavior instead of averaging across two markets that don't behave alike.
+- **Why ₹299 one-time instead of a cheaper domestic subscription:** a recurring charge for something framed as a spiritual-practice companion invites exactly the "why am I being billed monthly to chant" friction and cancellation-churn optics Sri Mandir's own numbers argue against. A single, modest, one-time purchase at the moment someone has already committed to a sankalp (i.e., already motivated, not being cold-sold) avoids both problems.
+- **Why Diya tokens (direct tipping) are cut, not deferred:** tipping is a fraud surface — self-tipping via a second account, or a small ring of accounts tipping each other, to fake either a creator's earnings or a fanbase — that a pooled, plays-based payout model structurally doesn't have the same exposure to (nobody profits from inflating their own play count the same way they'd profit from inflating tips to themselves). This was true before today's research too; it just wasn't the deciding reason to cut it until the domestic-subscription assumption underneath the whole Diya rationale (§10.1's old text) stopped holding.
+- **Why creator payouts are deferred rather than promised:** the pooled-royalty model only produces a real payout once there's real revenue to pool. Launching with a payout promise the ₹0-revenue pool can't fund yet is a worse outcome for creator trust than being upfront that verification and posting get protection and attribution now, with a share of revenue later if the platform earns one.
+
+Follow-on work this creates, tracked in [`GAPS.md`](./GAPS.md): detecting a user's market (India vs. diaspora) reliably enough to price correctly, and the pre-existing App Store/Play Store in-app-purchase compliance question — already flagged there — now blocks *all* payment UI work, not just one line item, since both the domestic one-time purchase and the diaspora subscription have to clear it.
 
 ---
 
@@ -432,8 +461,8 @@ Deliberately avoid optimizing for raw time-on-app — maximizing session length 
 | Activation | % of new users completing a japa session or watching 3+ reels in their first session |
 | Retention | D1 / D7 / D30 retention; % of streak starters who reach day 21 |
 | Engagement (intentionally *not* raw watch-time) | Session completion rate; Smaran (save) rate as a proxy for content resonance |
-| Creator health | # verified creators; 30/90-day creator retention; median creator monthly earning; total royalty pool paid out |
-| Monetization | Seva Pass conversion rate; MRR; ARPU; LTV:CAC |
+| Creator health | # verified creators; 30/90-day creator retention; median creator monthly earning and total royalty pool paid out **(both N/A until the pool activates — [§10.4](#104-creator-payouts-deferred))** |
+| Monetization | Seva Pass conversion rate (tracked separately for the India one-time purchase and the diaspora subscription); MRR (diaspora-driven); ARPU; LTV:CAC |
 | Trust & safety | Moderation queue turnaround time; classifier false-positive/false-negative rate on the bhajan-vs-song pipeline; appeal overturn rate |
 | Platform health | Uptime %; API p95 latency; crash-free session rate |
 
@@ -442,6 +471,8 @@ Deliberately avoid optimizing for raw time-on-app — maximizing session length 
 ## 12. Open Decisions
 
 **Resolved August 18, 2026:** tradition scope ([§4.4](#44-tradition-scope)), content categories ([§4.1](#41-what-anhad-is)), the rights rule ([§4.2.1](#421-the-rights-rule--one-line-that-solves-two-problems)), curator role retired ([§10.2](#102-design-decision-who-gets-direct-monetization)), age policy and Family Accounts ([§4.5](#45-age-policy--family-accounts)), diaspora deferred to post-PMF, creator minimum age 18+.
+
+**Resolved September 10, 2026:** monetization model overhauled based on same-day market research ([§10.6](#106-why-the-model-changed-september-10-2026)) — direct tipping ("Diya tokens") removed entirely; Seva Pass split into a ₹299 one-time purchase (India) and a ~$9/month location-priced subscription (diaspora); creator payouts deferred (not promised) until the platform itself earns revenue ([§10.4](#104-creator-payouts-deferred)); festival passes logged as a future, unbuilt revenue line ([§10.1](#101-revenue-streams-v1)).
 
 **Still open:**
 
@@ -464,3 +495,4 @@ Deliberately avoid optimizing for raw time-on-app — maximizing session length 
 - TaxGuru, TaxBuddy, TaxGarden, XflowPay, Legal Service India — TDS / Income Tax Act 2025 analysis
 - Elevation Capital — AppsForBharat investment perspective
 - Google Play / App Store listings — BhaktiPath, myBhakti, Bhakti Sakha, Bhakti Game, BhaktiReel, Sattva, Bhajan — Devotional Songs App
+- Sri Mandir download/MAU figures and five-year in-app-purchase revenue, and diaspora-vs-domestic ARPU figures for comparable devotional apps — market research conducted September 10, 2026, informing the [§10.6](#106-why-the-model-changed-september-10-2026) monetization overhaul

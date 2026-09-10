@@ -2,7 +2,7 @@
 
 **A sanctuary for bhajans, mantras & stutis.**
 
-A short-form vertical video app restricted to one thing: devotional content — bhajans, mantras, stutis, chalisas, aartis, and spiritual discourse. No filmi songs, no political content, no algorithmic doomscrolling. Free to watch; creators pass a one-time verification step; original singers earn from an audio-reuse royalty pool; and a screen-off japa (chanting) counter with streaks gives the app a daily-practice habit loop mainstream social media doesn't have.
+A short-form vertical video app restricted to one thing: devotional content — bhajans, mantras, stutis, chalisas, aartis, and spiritual discourse. No filmi songs, no political content, no algorithmic doomscrolling. Everything spiritual is free forever; creators pass a one-time verification step; direct tipping is deliberately excluded, with creator payouts planned as a pooled share of platform revenue once there's revenue to share; and a screen-off japa (chanting) counter with streaks gives the app a daily-practice habit loop mainstream social media doesn't have.
 
 **Status:** Concept → Pre-MVP. These five documents are the planning foundation before any code is written.
 
@@ -42,9 +42,9 @@ Custom terms used throughout these docs, so you don't have to cross-reference `P
 - **Jugalbandi** — replaces "Remix/Duet"
 - **Smaran** — replaces "Save/Bookmark"
 - **Sevak** — replaces "Follow"
-- **Seva Pass** — the paid subscription tier
+- **Seva Pass** — the paid convenience-feature tier: ₹299 one-time in India, ~$9/month for diaspora (see `PRD.md` §10.1)
 - **Japa** — the chanting/counting practice the daily-use tracker is built around (target: 1 mala = 108 chants/day)
-- **Diya tokens** — in-app digital gifting, restricted to verified original artists (see `PRD.md` §10.2 for why)
+- ~~**Diya tokens**~~ — removed entirely September 10, 2026; direct viewer-to-creator tipping is not a feature of this platform (see `PRD.md` §10.6)
 
 ## Core feature snapshot
 
@@ -52,8 +52,8 @@ Custom terms used throughout these docs, so you don't have to cross-reference `P
 - 3-layer AI moderation pipeline to distinguish authentic bhajans from filmi songs with devotional lyrics
 - Screen-off japa counter with anti-cheat tap-timing checks and streak tracking
 - One-time creator verification stake (₹99) that converts to wallet credit, never a recurring toll
-- Audio-reuse royalty pool for original artists, paid monthly, always capped at a share of actual revenue — never a fixed liability
-- Seva Pass subscription for background/lock-screen playback and offline downloads
+- Audio-reuse royalty pool for original artists — the long-term plan, deferred until the platform itself earns revenue, capped at a share of actual revenue and never a fixed liability once active
+- Seva Pass for japa convenience features (background/lock-screen playback, offline downloads): ₹299 one-time in India, ~$9/month for diaspora
 
 Full detail, priorities, and the reasoning behind every one of these is in `PRD.md` §7.
 
